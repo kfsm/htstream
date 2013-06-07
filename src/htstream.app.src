@@ -1,0 +1,15 @@
+{application, htstream,
+   [
+      {description, "http stream parser"},
+      {vsn,         "0.1.0"},
+      {modules,     [
+         htstream
+      ]},
+      {registered,  []},
+      {applications,[
+         kernel, stdlib
+      ]},
+      {env, []}
+   ]
+}.  
+
