@@ -39,18 +39,14 @@ loop({ok, Packet}, Sock, Http, Buffer, Entity) ->
 loop(Error, _Sock, _Http, _Buffer, _Entity) ->
    Error.
 
-%% no http data is returned 
-http({<<>>, Buffer, Http}, Sock, Entity) ->
+%% http parse result is returned
+http({Chunk, Buffer, Http}, Sock, Entity) ->
    case htstream:eof(Http) of
       % end of http message, return received iolist
       true  -> 
          gen_tcp:close(Sock),
-         {htstream:status(Http), htstream:headers(Http), lists:reverse(Entity)};
+         {htstream:status(Http), htstream:headers(Http), lists:reverse([Chunk | Entity])};
       % input packet do not contain entire data, receive more data from socket
       false ->
-         loop(gen_tcp:recv(Sock, 0), Sock, Http, Buffer, Entity)
-   end;
-
-%% chunk of http data is returned, apply http parser until incoming packet is fully consumed
-http({Chunk, Buffer, Http}, Sock, Entity) ->
-   http(htstream:parse(Buffer, Http), Sock, [Chunk | Entity]).
+         loop(gen_tcp:recv(Sock, 0), Sock, Http, Buffer, [Chunk | Entity])
+   end.

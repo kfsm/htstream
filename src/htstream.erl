@@ -93,31 +93,36 @@ message(#http{msg=Msg}) ->
 %%   HtData - parsed http content or empty binary
 %%   Packet - unparsed suffix of packet
 %%   Http   - new parser state  
--spec(parse/2 :: (binary(), #http{}) -> {binary(), binary(), #http{}}).
+-spec(parse/2 :: (binary(), #http{}) -> {iolist(), binary(), #http{}}).
 
-parse(Pckt, #http{is=idle}=S) ->
-   maybe_http(erlang:decode_packet(http_bin, Pckt, []), Pckt, S);
+parse(Pckt, Http) ->
+   parse(Pckt, [], Http).
 
-parse(Pckt, #http{is=header}=S) ->
-   maybe_header(erlang:decode_packet(httph_bin, Pckt, []), Pckt, S);
+parse(Pckt, Acc, #http{is=idle}=S) ->
+   maybe_http(erlang:decode_packet(http_bin, Pckt, []), Pckt, Acc, S);
 
-parse(Pckt, #http{is=entity, length=0}=S) ->
-   {<<>>, Pckt, S#http{is=eof}};
-parse(Pckt, #http{is=entity, length=Len}=S)
+parse(Pckt, Acc, #http{is=header}=S) ->
+   maybe_header(erlang:decode_packet(httph_bin, Pckt, []), Pckt, Acc, S);
+
+parse(Pckt, Acc, #http{is=entity, length=Len}=S)
  when size(Pckt) < Len ->
-   {Pckt, <<>>,  S#http{length=Len - size(Pckt)}};
-parse(Pckt, #http{is=entity, length=Len}=S) ->
+   {return([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
+parse(Pckt, Acc, #http{is=entity, length=Len}=S) ->
    <<Chunk:Len/binary, Rest/binary>> = Pckt,
-   {Chunk, Rest, S#http{is=entity, length=0}};
+   {return([Chunk | Acc]), Rest, S#http{is=eof, length=0}};
 
-parse(Pckt, #http{is=chunked, length=0}=S) ->
-   maybe_chunk_header(binary:split(Pckt, <<"\r\n">>), Pckt, S);
-parse(Pckt, #http{is=chunked, length=Len}=S)
+parse(Pckt, Acc, #http{is=chunked, length=0}=S) ->
+   maybe_chunk_header(binary:split(Pckt, <<"\r\n">>), Pckt, Acc, S);
+parse(Pckt, Acc, #http{is=chunked, length=Len}=S)
  when size(Pckt) < Len ->
-   {Pckt, <<>>,  S#http{length=Len - size(Pckt)}};
-parse(Pckt, #http{is=chunked, length=Len}=S) ->
-   <<Chunk:Len/binary, $\r, $\n, Rest/binary>> = Pckt,
-   {Chunk, Rest, S#http{length=0}}.
+   {return([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
+parse(Pckt, Acc, #http{is=chunked, length=Len}=S) ->
+   case Pckt of
+      <<Chunk:Len/binary, $\r, $\n>> ->
+         {return([Chunk | Acc]), <<>>, S#http{length=0}};
+      <<Chunk:Len/binary, $\r, $\n, Rest/binary>> ->
+         parse(Rest, [Chunk | Acc], S#http{length=0})
+   end.
 
 %%%------------------------------------------------------------------
 %%%
@@ -125,15 +130,20 @@ parse(Pckt, #http{is=chunked, length=Len}=S) ->
 %%%
 %%%------------------------------------------------------------------
 
+%% output accumulated result
+return(Acc) ->
+   lists:reverse(Acc).
+   
+
 %% attempt to parse HTTP request line
-maybe_http({more, _}, Pckt, S) ->
-   {undefined, Pckt, S};
-maybe_http({error, _}, _Pckt, _S) ->
+maybe_http({more, _}, Pckt, Acc, S) ->
+   {return(Acc), Pckt, S};
+maybe_http({error, _}, _Pckt, _Acc, _S) ->
    {error, badarg};
-maybe_http({ok, {http_error, _}, _}, _Pckt, _S) ->
+maybe_http({ok, {http_error, _}, _}, _Pckt, _Acc, _S) ->
    {error, badarg};
-maybe_http({ok, {http_request, Mthd, Url, Vsn}, Rest}, _Pckt, S) ->
-   parse(Rest, 
+maybe_http({ok, {http_request, Mthd, Url, Vsn}, Rest}, _Pckt, Acc, S) ->
+   parse(Rest, Acc,
       S#http{
          is      = header,
          method  = parse_method(Mthd),
@@ -141,8 +151,8 @@ maybe_http({ok, {http_request, Mthd, Url, Vsn}, Rest}, _Pckt, S) ->
          version = Vsn   
       }
    );
-maybe_http({ok, {http_response, Vsn, Status, Msg}, Rest}, _Pckt, S) ->
-   parse(Rest,
+maybe_http({ok, {http_response, Vsn, Status, Msg}, Rest}, _Pckt, Acc, S) ->
+   parse(Rest, Acc,
       S#http{
          is      = header,
          status  = Status,
@@ -152,16 +162,16 @@ maybe_http({ok, {http_response, Vsn, Status, Msg}, Rest}, _Pckt, S) ->
    ).
 
 %% attempt to parse HTTP header
-maybe_header({more, _}, Pckt, S) ->
-   {undefined, Pckt, S};
-maybe_header({error, _}, _Pckt, _S) ->
+maybe_header({more, _}, Pckt, Acc, S) ->
+   {return(Acc), Pckt, S};
+maybe_header({error, _}, _Pckt, _Acc, _S) ->
    {error, badarg};
-maybe_header({ok, {http_error, _}, _}, _Pckt, _S) ->
+maybe_header({ok, {http_error, _}, _}, _Pckt, _Acc, _S) ->
    {error, badarg};
-maybe_header({ok, http_eoh, Rest}, _Pckt, S) ->
-   maybe_payload(Rest, S#http{headers=lists:reverse(S#http.headers)});
-maybe_header({ok, {http_header, _I, Head, _R, Val}, Rest}, _Pckt, S) -> 
-   parse(Rest, S#http{headers=[parse_header(Head, Val)|S#http.headers]}).
+maybe_header({ok, http_eoh, Rest}, _Pckt, Acc, S) ->
+   maybe_payload(Rest, Acc, S#http{headers=lists:reverse(S#http.headers)});
+maybe_header({ok, {http_header, _I, Head, _R, Val}, Rest}, _Pckt, Acc, S) -> 
+   parse(Rest, Acc, S#http{headers=[parse_header(Head, Val)|S#http.headers]}).
 
 %% parse http supported method
 parse_method(Mthd) ->
@@ -180,36 +190,35 @@ parse_header(Head, Val) ->
    {Head, Val}.
 
 %% check if payload needs to be received
-maybe_payload(Rest, #http{method='GET'}=S) ->
-   {undefined, Rest, S#http{is=eof}};
-maybe_payload(Rest, #http{method='HEAD'}=S) ->
-   {undefined, Rest, S#http{is=eof}};
-maybe_payload(Rest, #http{method='DELETE'}=S) ->
-   {undefined, Rest, S#http{is=eof}};
-maybe_payload(Rest, S) ->
-   maybe_payload_entity(lists:keyfind('Content-Length', 1, S#http.headers), Rest, S).
+maybe_payload(Rest, Acc, #http{method='GET'}=S) ->
+   {return(Acc), Rest, S#http{is=eof}};
+maybe_payload(Rest, Acc, #http{method='HEAD'}=S) ->
+   {return(Acc), Rest, S#http{is=eof}};
+maybe_payload(Rest, Acc, #http{method='DELETE'}=S) ->
+   {return(Acc), Rest, S#http{is=eof}};
+maybe_payload(Rest, Acc, S) ->
+   maybe_payload_entity(lists:keyfind('Content-Length', 1, S#http.headers), Rest, Acc, S).
 
 
-maybe_payload_entity({'Content-Length', Len}, Rest, S) ->
-   parse(Rest, S#http{is=entity, length=Len});
-maybe_payload_entity(false, Rest, S) ->
-   maybe_payload_chunked(lists:keyfind('Transfer-Encoding', 1, S#http.headers), Rest, S).
+maybe_payload_entity({'Content-Length', Len}, Rest, Acc, S) ->
+   parse(Rest, Acc, S#http{is=entity, length=Len});
+maybe_payload_entity(false, Rest, Acc, S) ->
+   maybe_payload_chunked(lists:keyfind('Transfer-Encoding', 1, S#http.headers), Rest, Acc, S).
 
 
-maybe_payload_chunked({'Transfer-Encoding', <<"chunked">>}, Rest, S) ->
-   parse(Rest, S#http{is=chunked}).
+maybe_payload_chunked({'Transfer-Encoding', <<"chunked">>}, Rest, Acc, S) ->
+   parse(Rest, Acc, S#http{is=chunked}).
 
 
 %% parse chunk header
-maybe_chunk_header([_], Pckt, S) ->
-   {<<>>, Pckt, S};
-maybe_chunk_header([Head, Pckt], _Pckt, S) ->
+maybe_chunk_header([_], Pckt, Acc, S) ->
+   {return(Acc), Pckt, S};
+maybe_chunk_header([Head, Pckt], _Pckt, Acc, S) ->
    [Len |_] = binary:split(Head, [<<" ">>, <<";">>]),
    case list_to_integer(binary_to_list(Len), 16) of
       0   ->
          <<_:2/binary, Rest/binary>> = Pckt,
-         {<<>>, Rest, S#http{is=eof}}; 
+         {return(Acc), Rest, S#http{is=eof}}; 
       Val ->
-         parse(Pckt, S#http{length=Val})
+         parse(Pckt, Acc, S#http{length=Val})
    end.
-
