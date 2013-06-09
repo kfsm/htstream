@@ -21,7 +21,7 @@
 
 -export([
    new/0, parse/2,
-   eof/1, headers/1, version/1, 
+   state/1,  headers/1, version/1, 
    method/1, url/1,
    status/1, message/1
 ]).
@@ -37,13 +37,15 @@ new()  ->
    #http{is=idle}.
 
 %%
-%% check end of http message
--spec(eof/1 :: (#http{}) -> true | false).
+%% check parser state
+-spec(state/1 :: (#http{}) -> idle | message | entity | eof).
 
-eof(#http{is=eof}) ->
-   true;
-eof(_) ->
-   false.
+state(#http{is=idle})    -> idle;
+state(#http{is=header})  -> message;
+state(#http{is=entity})  -> entity;
+state(#http{is=chunked}) -> entity;
+state(#http{is=eof})     -> eof.
+
 
 %%
 %% return http headers

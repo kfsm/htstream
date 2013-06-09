@@ -41,12 +41,12 @@ loop(Error, _Sock, _Http, _Buffer, _Entity) ->
 
 %% http parse result is returned
 http({Chunk, Buffer, Http}, Sock, Entity) ->
-   case htstream:eof(Http) of
+   case htstream:state(Http) of
       % end of http message, return received iolist
-      true  -> 
+      eof  -> 
          gen_tcp:close(Sock),
          {htstream:status(Http), htstream:headers(Http), lists:reverse([Chunk | Entity])};
       % input packet do not contain entire data, receive more data from socket
-      false ->
+      _    ->
          loop(gen_tcp:recv(Sock, 0), Sock, Http, Buffer, [Chunk | Entity])
    end.
