@@ -26,6 +26,9 @@
    status/1, message/1
 ]).
 
+-type(http() :: #http{}).
+-export_type([http/0]).
+
 %%
 %% create new http parser
 -spec(new/0 :: () -> #http{}).
