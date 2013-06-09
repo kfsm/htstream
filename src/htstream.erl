@@ -181,9 +181,16 @@ parse_method(Mthd) ->
    Mthd.
 
 %% parse url
-parse_url(Url) ->
-   % TODO: implement
-   Url.
+parse_url({abs_path, Url}) ->  
+   Url;
+parse_url({absoluteURI, Scheme, Host, undefined, Path}) ->
+   <<(atom_to_binary(Scheme, utf8))/binary, $:, $/, $/, 
+      Host/binary, Path/binary>>;
+parse_url({absoluteURI, Scheme, Host, Port, Path}) ->
+   <<(atom_to_binary(Scheme, utf8))/binary, $:, $/, $/, 
+     Host/binary, $:, (list_to_binary(integer_to_list(Port)))/binary, Path/binary>>;
+parse_url('*') ->
+   <<$*>>.
 
 %% parse header value
 parse_header('Content-Length', Val) ->
