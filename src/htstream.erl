@@ -20,214 +20,422 @@
 -include("htstream.hrl").
 
 -export([
-   new/0, parse/2,
-   state/1,  headers/1, version/1, 
-   method/1, url/1,
-   status/1, message/1
+   new/0, state/1,
+   decode/1, decode/2, 
+   encode/1, encode/2 
 ]).
 
--type(http() :: #http{}).
--export_type([http/0]).
+-export_type([
+   method/0, url/0, header/0, request/0, payload/0, http/0
+]).
 
 %%
-%% create new http parser
--spec(new/0 :: () -> #http{}).
+%% public types 
+-type(method()  :: atom()).                        % request method
+-type(url()     :: binary()).                      % request url 
+-type(header()  :: {atom(), binary() | integer}).  % http header
+-type(request() :: {method(), url(), [header()]}). % http request
+-type(response():: {integer(), binary(), [header()]}). 
+-type(payload() :: binary()).                      % http payload
+-type(http()    :: #http{}).                       % http parser state
+
+-define(VERSION,   {1, 1}).
+
+%%
+%% create new http stream
+-spec(new/0 :: () -> http()).
+-spec(new/1 :: (any()) -> http()).
 
 new()  ->
-   #http{is=idle}.
+   new(?VERSION).
+
+new({_, _}=Vsn) ->
+   #http{is=idle, version=Vsn}.
 
 %%
 %% check parser state
--spec(state/1 :: (#http{}) -> idle | message | entity | eof).
+-spec(state/1 :: (#http{}) -> idle | message | payload | eof).
 
 state(#http{is=idle})    -> idle;
 state(#http{is=header})  -> message;
-state(#http{is=entity})  -> entity;
-state(#http{is=chunked}) -> entity;
+state(#http{is=entity})  -> payload;
+state(#http{is=chunked}) -> payload;
 state(#http{is=eof})     -> eof.
 
 
 %%
-%% return http headers
--spec(headers/1 :: (#http{}) -> list()).
+%% decodes http stream, return parsed value and remaining data
+-spec(decode/2 :: (binary(), #http{}) -> {iolist() | request() | response(), binary(), #http{}}).
 
-headers(#http{headers=Headers}) ->
-   Headers.
-
-%%
-%% return http version
--spec(version/1 :: (#http{}) -> {integer(), integer()}).
-
-version(#http{version=Version}) ->
-   Version. 
+decode(Msg) ->
+   decode(Msg, new()).
+decode(Msg, Http) ->
+   decode(Msg, [], Http).
 
 %%
-%% return http request method
--spec(method/1 :: (#http{}) -> atom()).
-
-method(#http{method=Mthd}) ->
-   Mthd.
-
-%%
-%% return http request url
--spec(url/1 :: (#http{}) -> binary()).
-
-url(#http{url=Url}) ->
-   Url.
-
-%%
-%% return http response status
--spec(status/1 :: (#http{}) -> integer()).
-
-status(#http{status=Code}) ->
-   Code.
-
-%%
-%% return http response message
--spec(message/1 :: (#http{}) -> binary()).
-
-message(#http{msg=Msg}) ->
-   Msg.
+%% encode http stream
+encode(Msg) ->
+   encode(Msg, new()).
+encode(Msg, Http) ->
+   encode(Msg, [], Http).
 
 
-%%
-%% parse packet and return result triple {HtData, Packet, Http}
-%%   HtData - parsed http content or empty binary
-%%   Packet - unparsed suffix of packet
-%%   Http   - new parser state  
--spec(parse/2 :: (binary(), #http{}) -> {iolist(), binary(), #http{}}).
 
-parse(Pckt, Http) ->
-   parse(Pckt, [], Http).
+%%%------------------------------------------------------------------
+%%%
+%%% decoder
+%%%
+%%%------------------------------------------------------------------
 
-parse(Pckt, Acc, #http{is=idle}=S) ->
-   maybe_http(erlang:decode_packet(http_bin, Pckt, []), Pckt, Acc, S);
+%% decode http request
+decode(Pckt, _Acc, #http{is=idle}=S) ->
+   decode_http(erlang:decode_packet(http_bin, Pckt, []), Pckt, S);
 
-parse(Pckt, Acc, #http{is=header}=S) ->
-   maybe_header(erlang:decode_packet(httph_bin, Pckt, []), Pckt, Acc, S);
+%% decode http headers
+decode(Pckt, _Acc, #http{is=header}=S) ->
+   decode_header(erlang:decode_packet(httph_bin, Pckt, []), Pckt, S);
 
-parse(Pckt, Acc, #http{is=entity, length=Len}=S)
+%% decode entity payload
+decode(Pckt, Acc, #http{is=entity, length=Len}=S)
  when size(Pckt) < Len ->
-   {return([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
-parse(Pckt, Acc, #http{is=entity, length=Len}=S) ->
+   {lists:reverse([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
+decode(Pckt, Acc, #http{is=entity, length=Len}=S) ->
    <<Chunk:Len/binary, Rest/binary>> = Pckt,
-   {return([Chunk | Acc]), Rest, S#http{is=eof, length=0}};
+   {lists:reverse([Chunk | Acc]), Rest, S#http{is=eof, length=0}};
 
-parse(Pckt, Acc, #http{is=chunked, length=0}=S) ->
-   maybe_chunk_header(binary:split(Pckt, <<"\r\n">>), Pckt, Acc, S);
-parse(Pckt, Acc, #http{is=chunked, length=Len}=S)
+%% decode chunked payload 
+decode(Pckt, Acc, #http{is=chunked, length=0}=S) ->
+   decode_chunk_header(binary:split(Pckt, <<"\r\n">>), Pckt, Acc, S);
+decode(Pckt, Acc, #http{is=chunked, length=Len}=S)
  when size(Pckt) < Len ->
-   {return([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
-parse(Pckt, Acc, #http{is=chunked, length=Len}=S) ->
+   {lists:reverse([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
+decode(Pckt, Acc, #http{is=chunked, length=Len}=S) ->
    case Pckt of
       <<Chunk:Len/binary, $\r, $\n>> ->
-         {return([Chunk | Acc]), <<>>, S#http{length=0}};
+         {lists:reverse([Chunk | Acc]), <<>>, S#http{length=0}};
       <<Chunk:Len/binary, $\r, $\n, Rest/binary>> ->
-         parse(Rest, [Chunk | Acc], S#http{length=0})
-   end.
+         decode(Rest, [Chunk | Acc], S#http{length=0})
+   end;
 
-%%%------------------------------------------------------------------
-%%%
-%%% private
-%%%
-%%%------------------------------------------------------------------
+decode(Pckt, Acc, #http{is=eof}=S) ->
+   {lists:reverse(Acc), Pckt, S}.
 
-%% output accumulated result
-return(Acc) ->
-   lists:reverse(Acc).
-   
 
-%% attempt to parse HTTP request line
-maybe_http({more, _}, Pckt, Acc, S) ->
-   {return(Acc), Pckt, S};
-maybe_http({error, _}, _Pckt, _Acc, _S) ->
+%% attempt to parse http request/response line
+decode_http({more, _}, Pckt, S) ->
+   {[], Pckt, S};
+decode_http({error, _}, _Pckt, _S) ->
    {error, badarg};
-maybe_http({ok, {http_error, _}, _}, _Pckt, _Acc, _S) ->
+decode_http({ok, {http_error, _}, _}, _Pckt, _S) ->
    {error, badarg};
-maybe_http({ok, {http_request, Mthd, Url, Vsn}, Rest}, _Pckt, Acc, S) ->
-   parse(Rest, Acc,
+decode_http({ok, {http_request, Mthd, Url, Vsn}, Rest}, _Pckt, S) ->
+   decode(Rest, [],
       S#http{
          is      = header,
-         method  = parse_method(Mthd),
-         url     = parse_url(Url),
+         htline  = {decode_method(Mthd), decode_url(Url)},
          version = Vsn   
       }
    );
-maybe_http({ok, {http_response, Vsn, Status, Msg}, Rest}, _Pckt, Acc, S) ->
-   parse(Rest, Acc,
+decode_http({ok, {http_response, Vsn, Status, Msg}, Rest}, _Pckt, S) ->
+   decode(Rest, [],
       S#http{
          is      = header,
-         status  = Status,
-         msg     = Msg,
+         htline  = {Status, Msg},
          version = Vsn
       }
    ).
 
-%% attempt to parse HTTP header
-maybe_header({more, _}, Pckt, Acc, S) ->
-   {return(Acc), Pckt, S};
-maybe_header({error, _}, _Pckt, _Acc, _S) ->
-   {error, badarg};
-maybe_header({ok, {http_error, _}, _}, _Pckt, _Acc, _S) ->
-   {error, badarg};
-maybe_header({ok, http_eoh, Rest}, _Pckt, Acc, S) ->
-   maybe_payload(Rest, Acc, S#http{headers=lists:reverse(S#http.headers)});
-maybe_header({ok, {http_header, _I, Head, _R, Val}, Rest}, _Pckt, Acc, S) -> 
-   parse(Rest, Acc, S#http{headers=[parse_header(Head, Val)|S#http.headers]}).
-
-%% parse http supported method
-parse_method(Mthd) ->
-   % TODO: implement
+%% attempt to decode method
+decode_method(Mthd) ->
    Mthd.
 
-%% parse url
-parse_url({abs_path, Url}) ->  
+%% attempt to decode url
+decode_url({abs_path, Url}) ->  
    Url;
-parse_url({absoluteURI, Scheme, Host, undefined, Path}) ->
+decode_url({absoluteURI, Scheme, Host, undefined, Path}) ->
    <<(atom_to_binary(Scheme, utf8))/binary, $:, $/, $/, 
       Host/binary, Path/binary>>;
-parse_url({absoluteURI, Scheme, Host, Port, Path}) ->
+decode_url({absoluteURI, Scheme, Host, Port, Path}) ->
    <<(atom_to_binary(Scheme, utf8))/binary, $:, $/, $/, 
      Host/binary, $:, (list_to_binary(integer_to_list(Port)))/binary, Path/binary>>;
-parse_url('*') ->
+decode_url('*') ->
    <<$*>>.
 
+%% attempt to parse HTTP header
+decode_header({more, _}, Pckt, S) ->
+   {[], Pckt, S};
+decode_header({error, _}, _Pckt, _S) ->
+   {error, badarg};
+decode_header({ok, {http_error, _}, _}, _Pckt, _S) ->
+   {error, badarg};
+decode_header({ok, http_eoh, Rest}, _Pckt, S) ->
+   {A, B} = S#http.htline,
+   {{A, B, lists:reverse(S#http.headers)}, Rest, decode_check_payload(S)};
+decode_header({ok, {http_header, _I, Head, _R, Val}, Rest}, _Pckt, S) -> 
+   decode(Rest, [], S#http{headers=[decode_header_value(Head, Val)|S#http.headers]}).
+
+
 %% parse header value
-parse_header('Content-Length', Val) ->
+decode_header_value('Content-Length', Val) ->
    {'Content-Length', list_to_integer(binary_to_list(Val))};
-parse_header(Head, Val) ->
+decode_header_value(Head, Val) ->
    {Head, Val}.
 
+
 %% check if payload needs to be received
-maybe_payload(Rest, Acc, #http{method='GET'}=S) ->
-   {return(Acc), Rest, S#http{is=eof}};
-maybe_payload(Rest, Acc, #http{method='HEAD'}=S) ->
-   {return(Acc), Rest, S#http{is=eof}};
-maybe_payload(Rest, Acc, #http{method='DELETE'}=S) ->
-   {return(Acc), Rest, S#http{is=eof}};
-maybe_payload(Rest, Acc, S) ->
-   maybe_payload_entity(lists:keyfind('Content-Length', 1, S#http.headers), Rest, Acc, S).
+decode_check_payload(#http{htline={'GET',  _}}=S) ->
+   S#http{is=eof};
+decode_check_payload(#http{htline={'HEAD', _}}=S) ->
+   S#http{is=eof};
+decode_check_payload(#http{htline={'DELETE', _}}=S) ->
+   S#http{is=eof};
+decode_check_payload(S) ->
+   decode_check_entity(lists:keyfind('Content-Length', 1, S#http.headers), S).
 
+decode_check_entity({'Content-Length', Len}, S) ->
+   S#http{is=entity, length=Len};
+decode_check_entity(false, S) ->
+   decode_check_chunked(lists:keyfind('Transfer-Encoding', 1, S#http.headers), S).
 
-maybe_payload_entity({'Content-Length', Len}, Rest, Acc, S) ->
-   parse(Rest, Acc, S#http{is=entity, length=Len});
-maybe_payload_entity(false, Rest, Acc, S) ->
-   maybe_payload_chunked(lists:keyfind('Transfer-Encoding', 1, S#http.headers), Rest, Acc, S).
-
-
-maybe_payload_chunked({'Transfer-Encoding', <<"chunked">>}, Rest, Acc, S) ->
-   parse(Rest, Acc, S#http{is=chunked}).
+decode_check_chunked({'Transfer-Encoding', <<"chunked">>}, S) ->
+   S#http{is=chunked}.
 
 
 %% parse chunk header
-maybe_chunk_header([_], Pckt, Acc, S) ->
-   {return(Acc), Pckt, S};
-maybe_chunk_header([Head, Pckt], _Pckt, Acc, S) ->
+decode_chunk_header([_], Pckt, Acc, S) ->
+   {lists:reverse(Acc), Pckt, S};
+decode_chunk_header([Head, Pckt], _Pckt, Acc, S) ->
    [Len |_] = binary:split(Head, [<<" ">>, <<";">>]),
    case list_to_integer(binary_to_list(Len), 16) of
       0   ->
          <<_:2/binary, Rest/binary>> = Pckt,
-         {return(Acc), Rest, S#http{is=eof}}; 
+         {lists:reverse(Acc), Rest, S#http{is=eof}}; 
       Val ->
-         parse(Pckt, Acc, S#http{length=Val})
+         decode(Pckt, Acc, S#http{length=Val})
    end.
+
+
+%%%------------------------------------------------------------------
+%%%
+%%% encoder
+%%%
+%%%------------------------------------------------------------------
+
+%%
+%%
+encode(Msg, _Acc, #http{is=idle}=S)   ->
+   encode_http(erlang:element(1, Msg), Msg, S);
+
+%% encode http headers
+encode(Msg,  Acc, #http{is=header}=S) ->
+   encode_header(Msg, Acc, S);
+
+%% encode entity payload
+encode(Pckt, Acc, #http{is=entity, length=Len}=S)
+ when size(Pckt) < Len ->
+   {lists:reverse([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
+encode(Pckt, Acc, #http{is=entity, length=Len}=S) ->
+   <<Chunk:Len/binary, Rest/binary>> = Pckt,
+   {lists:reverse([Chunk | Acc]), Rest, S#http{is=eof, length=0}};
+
+%% encode chunked payload 
+encode(eof,  Acc, #http{is=chunked}=S) ->
+   encode_chunk(<<>>, Acc, S#http{is=eof});
+encode(<<>>, Acc, #http{is=chunked}=S) ->
+   encode_chunk(<<>>, Acc, S#http{is=eof});
+encode(Pckt, Acc, #http{is=chunked}=S) ->
+   encode_chunk(Pckt, Acc, S);
+
+encode(Pckt, Acc, #http{is=eof}=S) ->
+   {lists:reverse(Acc), Pckt, S}.
+
+%%
+encode_http('OPTIONS', Msg, S) -> encode_http_request(Msg, S);
+encode_http('GET', Msg, S)     -> encode_http_request(Msg, S);
+encode_http('HEAD', Msg, S)    -> encode_http_request(Msg, S);
+encode_http('POST', Msg, S)    -> encode_http_request(Msg, S);
+encode_http('PUT', Msg, S)     -> encode_http_request(Msg, S);
+encode_http('DELETE', Msg, S)  -> encode_http_request(Msg, S);
+encode_http('TRACE', Msg, S)   -> encode_http_request(Msg, S);
+encode_http('PATCH', Msg, S)   -> encode_http_request(Msg, S);
+encode_http(_, Msg, S)         -> encode_http_response(Msg, S).
+
+%%
+encode_http_request({Mthd, Url, _}=Msg, S) ->
+   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , Url, $ , encode_version(S#http.version), $\r, $\n]),
+   encode(Msg, [Http], S#http{is=header});
+encode_http_request({Mthd, Url, _, _}=Msg, S) ->
+   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , Url, $ , encode_version(S#http.version), $\r, $\n]),
+   encode(Msg, [Http], S#http{is=header}).
+
+encode_http_response({Status, _}=Msg, S) ->
+   Http = iolist_to_binary([encode_version(S#http.version), $ , encode_status(Status), $\r, $\n]),
+   encode(Msg, [Http], S#http{is=header});   
+encode_http_response({Status, _, _}=Msg, S) ->
+   Http = iolist_to_binary([encode_version(S#http.version), $ , encode_status(Status), $\r, $\n]),
+   encode(Msg, [Http], S#http{is=header}).
+
+%%
+encode_header({_, Headers}, Acc, S)
+ when is_list(Headers) ->
+   Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
+   Http = lists:reverse([iolist_to_binary([Head, $\r, $\n]) | Acc]),
+   {Http, <<>>, encode_check_payload(S#http{headers=Headers})};
+encode_header({_, _Url, Headers}, Acc, S)
+ when is_list(Headers) ->
+   Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
+   Http = lists:reverse([iolist_to_binary([Head, $\r, $\n]) | Acc]),
+   {Http, <<>>, encode_check_payload(S#http{headers=Headers})};
+encode_header({_, Headers, Payload}, Acc, S)
+ when is_list(Headers) ->
+   Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
+   Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
+   encode(Payload, Http, encode_check_payload(S#http{headers=Headers}));
+encode_header({_, _Url, Headers, Payload}, Acc, S)
+ when is_list(Headers) ->
+   Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
+   Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
+   encode(Payload, Http, encode_check_payload(S#http{headers=Headers})).
+
+
+%% check if payload needs to be transmitted
+encode_check_payload(S) ->
+   encode_check_entity(lists:keyfind('Content-Length', 1, S#http.headers), S).
+
+encode_check_entity({'Content-Length', Len}, S) ->
+   S#http{is=entity, length=Len};
+encode_check_entity(false, S) ->
+   encode_check_chunked(lists:keyfind('Transfer-Encoding', 1, S#http.headers), S).
+
+encode_check_chunked({'Transfer-Encoding', chunked}, S) ->
+   S#http{is=chunked};
+encode_check_chunked({'Transfer-Encoding', <<"chunked">>}, S) ->
+   S#http{is=chunked};
+encode_check_chunked(false, S) ->
+   S#http{is=eof}.
+
+encode_chunk(Chunk, Acc, S) ->
+   Size = integer_to_list(size(Chunk), 16),
+   Chnk = iolist_to_binary([<<(list_to_binary(Size))/binary, $\r, $\n>>, Chunk, <<$\r, $\n>>]),
+   Http = lists:reverse([Chnk | Acc]),
+   {Http, <<>>, S}.
+
+%%
+encode_version({Major, Minor}) ->
+   <<$H, $T, $T, $P, $/, (encode_value(Major))/binary, $., (encode_value(Minor))/binary>>.
+
+%%
+%%
+encode_header_value({'Host', {Host, Port}}) ->
+   <<"Host", ": ", (encode_value(Host))/binary, ":", (encode_value(Port))/binary>>;
+
+encode_header_value({Key, Val})
+ when is_atom(Key) ->
+   <<(atom_to_binary(Key, utf8))/binary, ": ", (encode_value(Val))/binary>>.
+
+%%
+%% encode header value  
+encode_value(Val)
+ when is_atom(Val) ->
+   atom_to_binary(Val, utf8);
+
+encode_value(Val)
+ when is_binary(Val) ->
+   Val;
+
+encode_value(Val)
+ when is_list(Val) ->
+   list_to_binary(Val);
+
+encode_value(Val)
+ when is_integer(Val) ->
+   list_to_binary(integer_to_list(Val)).
+
+
+
+%% encode http status code response
+encode_status(100) -> <<"100 Continue">>;
+encode_status(101) -> <<"101 Switching Protocols">>;
+encode_status(200) -> <<"200 OK">>;
+encode_status(201) -> <<"201 Created">>;
+encode_status(202) -> <<"202 Accepted">>;
+encode_status(203) -> <<"203 Non-Authoritative Information">>;
+encode_status(204) -> <<"204 No Content">>;
+encode_status(205) -> <<"205 Reset Content">>;
+encode_status(206) -> <<"206 Partial Content">>;
+encode_status(300) -> <<"300 Multiple Choices">>;
+encode_status(301) -> <<"301 Moved Permanently">>;
+encode_status(302) -> <<"302 Found">>;
+encode_status(303) -> <<"303 See Other">>;
+encode_status(304) -> <<"304 Not Modified">>;
+encode_status(307) -> <<"307 Temporary Redirect">>;
+encode_status(400) -> <<"400 Bad Request">>;
+encode_status(401) -> <<"401 Unauthorized">>;
+encode_status(402) -> <<"402 Payment Required">>;
+encode_status(403) -> <<"403 Forbidden">>;
+encode_status(404) -> <<"404 Not Found">>;
+encode_status(405) -> <<"405 Method Not Allowed">>;
+encode_status(406) -> <<"406 Not Acceptable">>;
+encode_status(407) -> <<"407 Proxy Authentication Required">>;
+encode_status(408) -> <<"408 Request Timeout">>;
+encode_status(409) -> <<"409 Conflict">>;
+encode_status(410) -> <<"410 Gone">>;
+encode_status(411) -> <<"411 Length Required">>;
+encode_status(412) -> <<"412 Precondition Failed">>;
+encode_status(413) -> <<"413 Request Entity Too Large">>;
+encode_status(414) -> <<"414 Request-URI Too Long">>;
+encode_status(415) -> <<"415 Unsupported Media Type">>;
+encode_status(416) -> <<"416 Requested Range Not Satisfiable">>;
+encode_status(417) -> <<"417 Expectation Failed">>;
+encode_status(422) -> <<"422 Unprocessable Entity">>;
+encode_status(500) -> <<"500 Internal Server Error">>;
+encode_status(501) -> <<"501 Not Implemented">>;
+encode_status(502) -> <<"502 Bad Gateway">>;
+encode_status(503) -> <<"503 Service Unavailable">>;
+encode_status(504) -> <<"504 Gateway Timeout">>;
+encode_status(505) -> <<"505 HTTP Version Not Supported">>;
+
+%encode_status(100) -> <<"100 Continue">>;
+%encode_status(101) -> <<"101 Switching Protocols">>;
+encode_status(ok)       -> encode_status(200);
+encode_status(created)  -> encode_status(201);
+encode_status(accepted) -> encode_status(202);
+%status(203) -> <<"203 Non-Authoritative Information">>;
+encode_status(no_content) -> encode_status(204);
+%status(205) -> <<"205 Reset Content">>;
+%status(206) -> <<"206 Partial Content">>;
+%status(300) -> <<"300 Multiple Choices">>;
+%status(301) -> <<"301 Moved Permanently">>;
+%status(found) -> <<"302 Found">>;
+%status(303) -> <<"303 See Other">>;
+%status(304) -> <<"304 Not Modified">>;
+%status(307) -> <<"307 Temporary Redirect">>;
+encode_status(badarg) -> encode_status(400);
+encode_status(unauthorized) -> encode_status(401);
+%status(402) -> <<"402 Payment Required">>;
+encode_status(forbidden) -> encode_status(403);
+encode_status(not_found) -> encode_status(404);
+encode_status(not_allowed)    -> encode_status(405);
+encode_status(not_acceptable) -> encode_status(406);
+%status(407) -> <<"407 Proxy Authentication Required">>;
+%status(408) -> <<"408 Request Timeout">>;
+encode_status(conflict) -> encode_status(409);
+encode_status(duplicate)-> encode_status(409);
+%status(410) -> <<"410 Gone">>;
+%status(411) -> <<"411 Length Required">>;
+%status(412) -> <<"412 Precondition Failed">>;
+%status(413) -> <<"413 Request Entity Too Large">>;
+%status(414) -> <<"414 Request-URI Too Long">>;
+encode_status(bad_mime_type) -> encode_status(415);
+%status(416) -> <<"416 Requested Range Not Satisfiable">>;
+%status(417) -> <<"417 Expectation Failed">>;
+%status(422) -> <<"422 Unprocessable Entity">>;
+encode_status(not_implemented) -> encode_status(501);
+%status(502) -> <<"502 Bad Gateway">>;
+encode_status(not_available) -> encode_status(503);
+%status(504) -> <<"504 Gateway Timeout">>;
+%status(505) -> <<"505 HTTP Version Not Supported">>.
+encode_status(_) -> encode_status(500).
+
+
+

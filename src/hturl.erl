@@ -29,24 +29,32 @@
 
 get(Host)
  when is_list(Host) ->
-   {ok, Sock} = gen_tcp:connect(Host, 80, [binary, {active, false}]),
-   ok = gen_tcp:send(Sock, <<"GET / HTTP/1.1\r\nHost: ", (list_to_binary(Host))/binary, "\r\n\r\n">>),
-   loop(gen_tcp:recv(Sock, 0), Sock, htstream:new(), <<>>, []).
+   %% send http request
+   {ok,  Sock} = gen_tcp:connect(Host, 80, [binary, {active, false}]),
+   {Req, _, _} = htstream:encode({'GET', <<"/">>, [{'Host', {Host, 80}}]}),
+   ok = gen_tcp:send(Sock, Req),
+
+   %% receive http response
+   loop(gen_tcp:recv(Sock, 0), Sock, htstream:new(), <<>>, undefined).
 
 %% recv raw packet from socket and apply parser on it
-loop({ok, Packet}, Sock, Http, Buffer, Entity) ->
-   http(htstream:parse(iolist_to_binary([Buffer, Packet]), Http), Sock, Entity);
-loop(Error, _Sock, _Http, _Buffer, _Entity) ->
+loop({ok, Packet}, Sock, Http, Buffer, Response) ->
+   http(htstream:decode(iolist_to_binary([Buffer, Packet]), Http), Sock, Response);
+loop(Error, Sock, _Http, _Buffer, _Response) ->
+   gen_tcp:close(Sock),
    Error.
 
 %% http parse result is returned
-http({Chunk, Buffer, Http}, Sock, Entity) ->
+http({{Code, _, Heads}, Buffer, Http}, Sock, _Response) ->
+   http(htstream:decode(Buffer, Http), Sock, {Code, Heads, []});
+
+http({Chunk, Buffer, Http}, Sock, {Code, Heads, Acc}) ->
    case htstream:state(Http) of
       % end of http message, return received iolist
       eof  -> 
          gen_tcp:close(Sock),
-         {htstream:status(Http), htstream:headers(Http), lists:reverse([Chunk | Entity])};
+         {Code, Heads, lists:reverse([Chunk | Acc])};
       % input packet do not contain entire data, receive more data from socket
       _    ->
-         loop(gen_tcp:recv(Sock, 0), Sock, Http, Buffer, [Chunk | Entity])
+         loop(gen_tcp:recv(Sock, 0), Sock, Http, Buffer, {Code, Heads, [Chunk | Acc]})
    end.
