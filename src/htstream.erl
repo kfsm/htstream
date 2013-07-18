@@ -60,6 +60,7 @@ state(#http{is=idle})    -> idle;
 state(#http{is=header})  -> message;
 state(#http{is=entity})  -> payload;
 state(#http{is=chunked}) -> payload;
+state(#http{is=eoh})     -> eoh;
 state(#http{is=eof})     -> eof.
 
 
@@ -94,6 +95,10 @@ decode(Pckt, _Acc, #http{is=idle}=S) ->
 %% decode http headers
 decode(Pckt, _Acc, #http{is=header}=S) ->
    decode_header(erlang:decode_packet(httph_bin, Pckt, []), Pckt, S);
+
+%% decode entity payload (end-of-header / entity first byte)
+decode(Pckt, _Acc, #http{is=eoh}=S) ->
+   decode_first_byte(lists:keyfind('Content-Length', 1, S#http.headers), Pckt, S);
 
 %% decode entity payload
 decode(Pckt, Acc, #http{is=entity, length=Len}=S)
@@ -190,15 +195,16 @@ decode_check_payload(#http{htline={'HEAD', _}}=S) ->
 decode_check_payload(#http{htline={'DELETE', _}}=S) ->
    S#http{is=eof};
 decode_check_payload(S) ->
-   decode_check_entity(lists:keyfind('Content-Length', 1, S#http.headers), S).
+   S#http{is=eoh}.
 
-decode_check_entity({'Content-Length', Len}, S) ->
-   S#http{is=entity, length=Len};
-decode_check_entity(false, S) ->
-   decode_check_chunked(lists:keyfind('Transfer-Encoding', 1, S#http.headers), S).
+%% decode first byte
+decode_first_byte({'Content-Length', Len}, Pckt, S) ->
+   decode(Pckt, [], S#http{is=entity, length=Len});
+decode_first_byte(false, Pckt, S) ->
+   decode_first_byte(lists:keyfind('Transfer-Encoding', 1, S#http.headers), Pckt, S);
 
-decode_check_chunked({'Transfer-Encoding', <<"chunked">>}, S) ->
-   S#http{is=chunked}.
+decode_first_byte({'Transfer-Encoding', <<"chunked">>}, Pckt, S) ->
+   decode(Pckt, [], S#http{is=chunked}).
 
 
 %% parse chunk header
@@ -329,9 +335,8 @@ encode_version({Major, Minor}) ->
 encode_header_value({'Host', {Host, Port}}) ->
    <<"Host", ": ", (encode_value(Host))/binary, ":", (encode_value(Port))/binary>>;
 
-encode_header_value({Key, Val})
- when is_atom(Key) ->
-   <<(atom_to_binary(Key, utf8))/binary, ": ", (encode_value(Val))/binary>>.
+encode_header_value({Key, Val}) ->
+   <<(encode_value(Key))/binary, ": ", (encode_value(Val))/binary>>.
 
 %%
 %% encode header value  
