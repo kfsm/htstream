@@ -21,7 +21,7 @@
 -include("htstream.hrl").
 
 -export([
-   new/0, state/1, is_payload/1,
+   new/0, state/1, 
    decode/1, decode/2, 
    encode/1, encode/2 
 ]).
@@ -68,23 +68,6 @@ state(#http{is=entity})  -> payload;
 state(#http{is=chunked}) -> payload;
 state(#http{is=eoh})     -> eoh;
 state(#http{is=eof})     -> eof.
-
-%%
-%% check if payload is associated with request
--spec(is_payload/1 :: (#http{}) -> true | false).
-
-is_payload(#http{is=entity}) ->
-   true;
-is_payload(#http{is=chunked}) ->
-   true;
-is_payload(#http{htline={'GET',  _}}=S) ->
-   false;
-is_payload(#http{htline={'HEAD', _}}=S) ->
-   false;
-is_payload(#http{htline={'DELETE', _}}=S) ->
-   false;
-is_payload(_) ->
-   true.
 
 %%
 %% decodes http stream, return parsed value and remaining data
