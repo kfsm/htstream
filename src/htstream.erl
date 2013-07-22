@@ -15,7 +15,7 @@
 %%   limitations under the License.
 %%
 %%  @description
-%%     http stream parser    
+%%     http stream-oriented encoder / decoder.
 -module(htstream).
 -include("htstream.hrl").
 
@@ -54,10 +54,15 @@ new({_, _}=Vsn) ->
 
 %%
 %% check parser state
--spec(state/1 :: (#http{}) -> idle | message | payload | eof).
+%%   * idle    - 
+%%   * header  - handling headers
+%%   * payload - handling payload
+%%   * eoh     - end of headers
+%%   * eof     - end of message  
+-spec(state/1 :: (#http{}) -> idle | header | payload | eof).
 
 state(#http{is=idle})    -> idle;
-state(#http{is=header})  -> message;
+state(#http{is=header})  -> header;
 state(#http{is=entity})  -> payload;
 state(#http{is=chunked}) -> payload;
 state(#http{is=eoh})     -> eoh;
@@ -97,16 +102,27 @@ decode(Pckt, _Acc, #http{is=header}=S) ->
    decode_header(erlang:decode_packet(httph_bin, Pckt, []), Pckt, S);
 
 %% decode entity payload (end-of-header / entity first byte)
-decode(Pckt, _Acc, #http{is=eoh}=S) ->
-   decode_first_byte(lists:keyfind('Content-Length', 1, S#http.headers), Pckt, S);
+decode(Pckt, Acc, #http{is=eoh, length=chunked}=S) ->
+   decode(Pckt, Acc, S#http{is=chunked, length=0});
+decode(Pckt, Acc, #http{is=eoh}=S) ->
+   decode(Pckt, Acc, S#http{is=entity});
 
 %% decode entity payload
 decode(Pckt, Acc, #http{is=entity, length=Len}=S)
- when size(Pckt) < Len ->
+ when is_integer(Len), size(Pckt) < Len ->
    {lists:reverse([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
-decode(Pckt, Acc, #http{is=entity, length=Len}=S) ->
+decode(Pckt, Acc, #http{is=entity, length=Len}=S)
+ when is_integer(Len) ->
    <<Chunk:Len/binary, Rest/binary>> = Pckt,
    {lists:reverse([Chunk | Acc]), Rest, S#http{is=eof, length=0}};
+
+decode(undefined, Acc, #http{is=entity, length=inf}=S) ->
+   {lists:reverse(Acc), <<>>, S#http{is=eof}};
+decode(eof, Acc, #http{is=entity, length=inf}=S) ->
+   {lists:reverse(Acc), <<>>, S#http{is=eof}};
+decode(Pckt, Acc, #http{is=entity}=S) ->
+   {lists:reverse([Pckt  | Acc]), <<>>, S};
+
 
 %% decode chunked payload 
 decode(Pckt, Acc, #http{is=chunked, length=0}=S) ->
@@ -183,28 +199,10 @@ decode_header({ok, {http_header, _I, Head, _R, Val}, Rest}, _Pckt, S) ->
 %% parse header value
 decode_header_value('Content-Length', Val) ->
    {'Content-Length', list_to_integer(binary_to_list(Val))};
+decode_header_value('Transfer-Length', Val) ->
+   {'Transfer-Length', list_to_integer(binary_to_list(Val))};
 decode_header_value(Head, Val) ->
    {Head, Val}.
-
-
-%% check if payload needs to be received
-decode_check_payload(#http{htline={'GET',  _}}=S) ->
-   S#http{is=eof};
-decode_check_payload(#http{htline={'HEAD', _}}=S) ->
-   S#http{is=eof};
-decode_check_payload(#http{htline={'DELETE', _}}=S) ->
-   S#http{is=eof};
-decode_check_payload(S) ->
-   S#http{is=eoh}.
-
-%% decode first byte
-decode_first_byte({'Content-Length', Len}, Pckt, S) ->
-   decode(Pckt, [], S#http{is=entity, length=Len});
-decode_first_byte(false, Pckt, S) ->
-   decode_first_byte(lists:keyfind('Transfer-Encoding', 1, S#http.headers), Pckt, S);
-
-decode_first_byte({'Transfer-Encoding', <<"chunked">>}, Pckt, S) ->
-   decode(Pckt, [], S#http{is=chunked}).
 
 
 %% parse chunk header
@@ -218,6 +216,78 @@ decode_chunk_header([Head, Pckt], _Pckt, Acc, S) ->
          {lists:reverse(Acc), Rest, S#http{is=eof}}; 
       Val ->
          decode(Pckt, Acc, S#http{length=Val})
+   end.
+
+%%
+%% decode check message payload
+%% see http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4
+%%
+%% 1. Any response message which "MUST NOT" include a message-body 
+%%    (such as the 1xx, 204, and 304 responses and any response to 
+%%    a HEAD request) is always terminated by the first empty line 
+%%    after the header fields... (Not implemented)
+%%
+%% 2. If a Transfer-Encoding header field (section 14.41) is present 
+%%    and has any value other than "identity", then the transfer-length 
+%%    is defined by use of the "chunked" transfer-coding (section 3.6), 
+%%    unless the message is terminated by closing the connection.
+%%
+%% 3. If a Content-Length header field (section 14.13) is present, 
+%%    its decimal value in OCTETs represents both the entity-length 
+%%    and the transfer-length. The Content-Length header field MUST NOT 
+%%    be sent if these two lengths are different
+%%
+%% 4. If the message uses the media type "multipart/byteranges"... 
+%%    (Not implemented)
+%%
+%% 5. By the server closing the connection. 
+decode_check_payload(#http{htline={'GET',  _}}=S) ->
+   S#http{is=eof};
+decode_check_payload(#http{htline={'HEAD', _}}=S) ->
+   S#http{is=eof};
+decode_check_payload(#http{htline={'DELETE', _}}=S) ->
+   S#http{is=eof};
+decode_check_payload(S) ->
+   element(2, alt(S, [
+      fun decode_payload_chunked/1,
+      fun decode_payload_entity/1,
+      fun decode_payload_eof/1
+   ])).
+
+decode_payload_chunked(S) ->
+   case lists:keyfind('Transfer-Encoding', 1, S#http.headers) of
+      {'Transfer-Encoding', <<"identity">>} ->
+         false;
+      {'Transfer-Encoding', <<"chunked">>}  ->
+         case lists:keyfind('Connection', 1, S#http.headers) of
+            {'Connection', <<"close">>} ->
+               false;
+            _ ->
+               {ok, S#http{is=eoh, length=chunked}}
+         end;
+      _ ->
+         false
+   end.
+
+decode_payload_entity(S) ->
+   case lists:keyfind('Transfer-Length', 1, S#http.headers) of
+      {'Transfer-Length', Len} ->
+         {ok, S#http{is=eoh, length=Len}};
+      _ ->
+         case lists:keyfind('Content-Length', 1, S#http.headers) of
+            {'Content-Length', Len} ->
+               {ok, S#http{is=eoh, length=Len}};
+            _ ->
+               false
+         end
+   end. 
+
+decode_payload_eof(S) ->
+   case lists:keyfind('Connection', 1, S#http.headers) of
+      {'Connection', <<"close">>} ->
+         {ok, S#http{is=eoh, length=inf}};
+      _ ->
+         false
    end.
 
 
@@ -441,6 +511,23 @@ encode_status(not_available) -> encode_status(503);
 %status(504) -> <<"504 Gateway Timeout">>;
 %status(505) -> <<"505 HTTP Version Not Supported">>.
 encode_status(_) -> encode_status(500).
+
+
+%%%------------------------------------------------------------------
+%%%
+%%% utility
+%%%
+%%%------------------------------------------------------------------
+
+%% alternation: applies sequence of function  
+alt(X, HoF) ->
+   alt(undefined, HoF, X).
+alt({ok, _}=Y, _, _) ->
+   Y;
+alt(_, [H|T], X) ->
+   alt(H(X), T, X);
+alt(Y, [], _) ->
+   Y.
 
 
 
