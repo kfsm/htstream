@@ -3,7 +3,7 @@ HTTP request/response parser for Erlang
 
 The library provides stream parser for HTTP messages. It parses both requests and responses.
 The library is design to provide minimal overhead (to be used in performance HTTP applications).
-The library does not have any external dependencies, does not call any external processes, 
-it does not buffer data. 
+The library does not have any external dependencies, does not call any external processes  
+it does not buffer any data. 
 
 See src/hturl.erl for usage examples
