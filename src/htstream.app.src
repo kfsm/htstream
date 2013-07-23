@@ -1,7 +1,7 @@
 {application, htstream,
    [
       {description, "http stream parser"},
-      {vsn,         "0.5.0"},
+      {vsn,         "0.6.0"},
       {modules,     [
          htstream
       ]},

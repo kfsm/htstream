@@ -17,6 +17,9 @@
 %%  @description
 %%     http stream-oriented encoder / decoder.
 %%  
+%%  @todo
+%%     * recbuf optional feature
+%%     * limit size recbuf
 -module(htstream).
 -include("htstream.hrl").
 
@@ -43,7 +46,7 @@
 -define(VERSION,   {1, 1}).
 
 %%
-%% create new http stream
+%% create new http stream parser
 -spec(new/0 :: () -> http()).
 -spec(new/1 :: (any()) -> http()).
 
@@ -51,7 +54,10 @@ new()  ->
    new(?VERSION).
 
 new({_, _}=Vsn) ->
-   #http{is=idle, version=Vsn}.
+   #http{is=idle, version=Vsn};
+
+new(#http{recbuf=Buf, version=Vsn}) ->
+   #http{is=idle, version=Vsn, recbuf=Buf}.
 
 %%
 %% check parser state
@@ -65,21 +71,29 @@ new({_, _}=Vsn) ->
 state(#http{is=idle})    -> idle;
 state(#http{is=header})  -> header;
 state(#http{is=entity})  -> payload;
-state(#http{is=chunked}) -> payload;
+state(#http{is=chunk_head}) -> payload;
+state(#http{is=chunk_data}) -> payload;
+state(#http{is=chunk_tail}) -> payload;
 state(#http{is=eoh})     -> eoh;
 state(#http{is=eof})     -> eof.
 
 %%
-%% decodes http stream, return parsed value and remaining data
--spec(decode/2 :: (binary(), #http{}) -> {iolist() | request() | response(), binary(), #http{}}).
+%% decodes http stream 
+%% returns parsed value and new parser state
+-spec(decode/2 :: (binary(), #http{}) -> {iolist() | request() | response(), #http{}}).
 
 decode(Msg) ->
    decode(Msg, new()).
-decode(Msg, Http) ->
-   decode(Msg, [], Http).
+decode(Msg, #http{recbuf = <<>>}=S) ->
+   decode(Msg, [], S);
+decode(Msg, S) ->
+   decode(iolist_to_binary([S#http.recbuf, Msg]), [], S#http{recbuf = <<>>}).
 
 %%
 %% encode http stream
+%% returns produces http message and new parser state
+-spec(encode/2 :: (iolist() | request() | response(), #http{}) -> {binary(), #http{}}).
+
 encode(Msg) ->
    encode(Msg, new()).
 encode(Msg, Http) ->
@@ -103,43 +117,47 @@ decode(Pckt, _Acc, #http{is=header}=S) ->
 
 %% decode entity payload (end-of-header / entity first byte)
 decode(Pckt, Acc, #http{is=eoh, length=chunked}=S) ->
-   decode(Pckt, Acc, S#http{is=chunked, length=0});
+   decode(Pckt, Acc, S#http{is=chunk_head, length=0});
 decode(Pckt, Acc, #http{is=eoh}=S) ->
    decode(Pckt, Acc, S#http{is=entity});
 
 %% decode entity payload
 decode(Pckt, Acc, #http{is=entity, length=Len}=S)
  when is_integer(Len), size(Pckt) < Len ->
-   {lists:reverse([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
+   {lists:reverse([Pckt  | Acc]), S#http{length=Len - size(Pckt)}};
+
 decode(Pckt, Acc, #http{is=entity, length=Len}=S)
  when is_integer(Len) ->
    <<Chunk:Len/binary, Rest/binary>> = Pckt,
-   {lists:reverse([Chunk | Acc]), Rest, S#http{is=eof, length=0}};
-decode(Pckt, Acc, #http{is=entity}=S) ->
-   {lists:reverse([Pckt  | Acc]), <<>>, S};
+   {lists:reverse([Chunk | Acc]), S#http{is=eof, length=0, recbuf=Rest}};
 
+decode(Pckt, Acc, #http{is=entity, length=inf}=S) ->
+   % message length is determined by closed connection
+   {lists:reverse([Pckt  | Acc]), S};
 
 %% decode chunked payload 
-decode(Pckt, Acc, #http{is=chunked, length=0}=S) ->
-   decode_chunk_header(binary:split(Pckt, <<"\r\n">>), Pckt, Acc, S);
-decode(Pckt, Acc, #http{is=chunked, length=Len}=S)
+decode(Pckt, Acc, #http{is=chunk_head, length=0}=S) ->
+   decode_chunk_head(binary:split(Pckt, <<"\r\n">>), Pckt, Acc, S);
+
+decode(Pckt, Acc, #http{is=chunk_data, length=Len}=S)
  when size(Pckt) < Len ->
-   {lists:reverse([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
-decode(Pckt, Acc, #http{is=chunked, length=Len}=S) ->
-   case Pckt of
-      <<Chunk:Len/binary, $\r, $\n>> ->
-         {lists:reverse([Chunk | Acc]), <<>>, S#http{length=0}};
-      <<Chunk:Len/binary, $\r, $\n, Rest/binary>> ->
-         decode(Rest, [Chunk | Acc], S#http{length=0})
-   end;
+   %% TODO: Should buffer chunk data (until it is fully received) 
+   {lists:reverse([Pckt  | Acc]), S#http{length=Len - size(Pckt)}};
+
+decode(Pckt, Acc, #http{is=chunk_data, length=Len}=S) ->
+   <<Chunk:Len/binary, Rest/binary>> = Pckt,
+   decode(Rest, [Chunk | Acc], S#http{is=chunk_tail, length=0});
+
+decode(Pckt, Acc, #http{is=chunk_tail}=S) ->
+   decode_chunk_tail(binary:split(Pckt, <<"\r\n">>), Pckt, Acc, S);  
 
 decode(Pckt, Acc, #http{is=eof}=S) ->
-   {lists:reverse(Acc), Pckt, S}.
+   {lists:reverse(Acc), S#http{recbuf=Pckt}}.
 
 
 %% attempt to parse http request/response line
 decode_http({more, _}, Pckt, S) ->
-   {[], Pckt, S};
+   {[], S#http{recbuf=Pckt}};
 decode_http({error, _}, _Pckt, _S) ->
    {error, badarg};
 decode_http({ok, {http_error, _}, _}, _Pckt, _S) ->
@@ -179,14 +197,14 @@ decode_url('*') ->
 
 %% attempt to parse HTTP header
 decode_header({more, _}, Pckt, S) ->
-   {[], Pckt, S};
+   {[], S#http{recbuf=Pckt}};
 decode_header({error, _}, _Pckt, _S) ->
    {error, badarg};
 decode_header({ok, {http_error, _}, _}, _Pckt, _S) ->
    {error, badarg};
 decode_header({ok, http_eoh, Rest}, _Pckt, S) ->
    {A, B} = S#http.htline,
-   {{A, B, lists:reverse(S#http.headers)}, Rest, decode_check_payload(S)};
+   {{A, B, lists:reverse(S#http.headers)}, decode_check_payload(S#http{recbuf=Rest})};
 decode_header({ok, {http_header, _I, Head, _R, Val}, Rest}, _Pckt, S) -> 
    decode(Rest, [], S#http{headers=[decode_header_value(Head, Val)|S#http.headers]}).
 
@@ -201,17 +219,25 @@ decode_header_value(Head, Val) ->
 
 
 %% parse chunk header
-decode_chunk_header([_], Pckt, Acc, S) ->
-   {lists:reverse(Acc), Pckt, S};
-decode_chunk_header([Head, Pckt], _Pckt, Acc, S) ->
+decode_chunk_head([_], Pckt, Acc, S) ->
+   {lists:reverse(Acc), S#http{recbuf=Pckt}};
+decode_chunk_head([Head, Pckt], _Pckt, Acc, S) ->
    [Len |_] = binary:split(Head, [<<" ">>, <<";">>]),
    case list_to_integer(binary_to_list(Len), 16) of
       0   ->
-         <<_:2/binary, Rest/binary>> = Pckt,
-         {lists:reverse(Acc), Rest, S#http{is=eof}}; 
+         decode(Pckt, Acc, S#http{is=chunk_tail, length=0});
+         % <<_:2/binary, Rest/binary>> = Pckt,
+         % {lists:reverse(Acc), S#http{is=eof, recbuf=Rest}}; 
       Val ->
-         decode(Pckt, Acc, S#http{length=Val})
+         decode(Pckt, Acc, S#http{is=chunk_data, length=Val}) 
    end.
+
+%% parse chunk tail
+decode_chunk_tail([_], Pckt, Acc, S) ->
+   {lists:reverse(Acc), S#http{recbuf=Pckt}};
+decode_chunk_tail([_, Pckt], _Pckt, Acc, S) ->
+   decode(Pckt, Acc, S#http{is=chunk_head, length=0}).
+
 
 %%
 %% decode check message payload
@@ -306,8 +332,9 @@ encode(Pckt, Acc, #http{is=entity, length=Len}=S)
  when size(Pckt) < Len ->
    {lists:reverse([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
 encode(Pckt, Acc, #http{is=entity, length=Len}=S) ->
-   <<Chunk:Len/binary, Rest/binary>> = Pckt,
-   {lists:reverse([Chunk | Acc]), Rest, S#http{is=eof, length=0}};
+   %% TODO: preserve Rest to sndbuf
+   <<Chunk:Len/binary, _Rest/binary>> = Pckt,
+   {lists:reverse([Chunk | Acc]), S#http{is=eof, length=0}};
 
 %% encode chunked payload 
 encode(eof,  Acc, #http{is=chunked}=S) ->
@@ -317,8 +344,8 @@ encode(<<>>, Acc, #http{is=chunked}=S) ->
 encode(Pckt, Acc, #http{is=chunked}=S) ->
    encode_chunk(Pckt, Acc, S);
 
-encode(Pckt, Acc, #http{is=eof}=S) ->
-   {lists:reverse(Acc), Pckt, S}.
+encode(_Pckt, Acc, #http{is=eof}=S) ->
+   {lists:reverse(Acc), S}.
 
 %%
 encode_http('OPTIONS', Msg, S) -> encode_http_request(Msg, S);
@@ -389,7 +416,7 @@ encode_chunk(Chunk, Acc, S) ->
    Size = integer_to_list(size(Chunk), 16),
    Chnk = iolist_to_binary([<<(list_to_binary(Size))/binary, $\r, $\n>>, Chunk, <<$\r, $\n>>]),
    Http = lists:reverse([Chnk | Acc]),
-   {Http, <<>>, S}.
+   {Http, S}.
 
 %%
 encode_version({Major, Minor}) ->
