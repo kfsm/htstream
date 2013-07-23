@@ -330,7 +330,7 @@ encode(Msg,  Acc, #http{is=header}=S) ->
 %% encode entity payload
 encode(Pckt, Acc, #http{is=entity, length=Len}=S)
  when size(Pckt) < Len ->
-   {lists:reverse([Pckt  | Acc]), <<>>, S#http{length=Len - size(Pckt)}};
+   {lists:reverse([Pckt  | Acc]), S#http{length=Len - size(Pckt)}};
 encode(Pckt, Acc, #http{is=entity, length=Len}=S) ->
    %% TODO: preserve Rest to sndbuf
    <<Chunk:Len/binary, _Rest/binary>> = Pckt,
@@ -378,12 +378,12 @@ encode_header({_, Headers}, Acc, S)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
    Http = lists:reverse([iolist_to_binary([Head, $\r, $\n]) | Acc]),
-   {Http, <<>>, encode_check_payload(S#http{headers=Headers})};
+   {Http, encode_check_payload(S#http{headers=Headers})};
 encode_header({_, _Url, Headers}, Acc, S)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
    Http = lists:reverse([iolist_to_binary([Head, $\r, $\n]) | Acc]),
-   {Http, <<>>, encode_check_payload(S#http{headers=Headers})};
+   {Http, encode_check_payload(S#http{headers=Headers})};
 encode_header({_, Headers, Payload}, Acc, S)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
