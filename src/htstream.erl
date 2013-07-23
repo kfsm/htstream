@@ -24,9 +24,13 @@
 -include("htstream.hrl").
 
 -export([
-   new/0, state/1, 
-   decode/1, decode/2, 
-   encode/1, encode/2 
+   new/0,
+   new/1,
+   state/1, 
+   decode/1, 
+   decode/2, 
+   encode/1, 
+   encode/2 
 ]).
 
 -export_type([
