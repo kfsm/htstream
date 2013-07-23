@@ -341,11 +341,11 @@ encode(Pckt, Acc, #http{is=entity, length=Len}=S) ->
    {lists:reverse([Chunk | Acc]), S#http{is=eof, length=0}};
 
 %% encode chunked payload 
-encode(eof,  Acc, #http{is=chunked}=S) ->
+encode(eof,  Acc, #http{is=chunk_data}=S) ->
    encode_chunk(<<>>, Acc, S#http{is=eof});
-encode(<<>>, Acc, #http{is=chunked}=S) ->
+encode(<<>>, Acc, #http{is=chunk_data}=S) ->
    encode_chunk(<<>>, Acc, S#http{is=eof});
-encode(Pckt, Acc, #http{is=chunked}=S) ->
+encode(Pckt, Acc, #http{is=chunk_data}=S) ->
    encode_chunk(Pckt, Acc, S);
 
 encode(_Pckt, Acc, #http{is=eof}=S) ->
@@ -410,9 +410,9 @@ encode_check_entity(false, S) ->
    encode_check_chunked(lists:keyfind('Transfer-Encoding', 1, S#http.headers), S).
 
 encode_check_chunked({'Transfer-Encoding', chunked}, S) ->
-   S#http{is=chunked};
+   S#http{is=chunk_data};
 encode_check_chunked({'Transfer-Encoding', <<"chunked">>}, S) ->
-   S#http{is=chunked};
+   S#http{is=chunk_data};
 encode_check_chunked(false, S) ->
    S#http{is=eof}.
 
