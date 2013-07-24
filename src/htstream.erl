@@ -218,9 +218,12 @@ decode_header_value('Content-Length', Val) ->
    {'Content-Length', list_to_integer(binary_to_list(Val))};
 decode_header_value('Transfer-Length', Val) ->
    {'Transfer-Length', list_to_integer(binary_to_list(Val))};
+decode_header_value('Content-Type', Val) ->
+   {'Content-Type', decode_mime_type(Val)};
+decode_header_value('Accept', Val) ->
+   {'Accept', [decode_mime_type(X) || X <- binary:split(Val, <<$,>>, [trim, global])]};
 decode_header_value(Head, Val) ->
    {Head, Val}.
-
 
 %% parse chunk header
 decode_chunk_head([_], Pckt, Acc, S) ->
@@ -315,6 +318,17 @@ decode_payload_eof(S) ->
          false
    end.
 
+%%
+%% TODO: support q-values
+decode_mime_type(Val) ->
+   [Mime | _QVal] = binary:split(Val, <<$;>>, []),
+   case binary:split(Mime, <<$/>>, []) of
+      [<<$*>>, <<$*>>] -> {'*',  '*'};
+      [Type,   <<$*>>] -> {Type, '*'};
+      [<<$*>>,SubType] -> {'*', SubType};
+      [Type,  SubType] -> {Type,SubType};
+      [Type]           -> {Type, '*'}
+   end.
 
 %%%------------------------------------------------------------------
 %%%
@@ -430,9 +444,16 @@ encode_version({Major, Minor}) ->
 %%
 encode_header_value({'Host', {Host, Port}}) ->
    <<"Host", ": ", (encode_value(Host))/binary, ":", (encode_value(Port))/binary>>;
-
+encode_header_value({'Content-Type', Val}) ->
+   <<"Content-Type", ": ", (encode_mime_type(Val))/binary>>;
 encode_header_value({Key, Val}) ->
    <<(encode_value(Key))/binary, ": ", (encode_value(Val))/binary>>.
+
+%%
+%%
+encode_mime_type({Type, SubType}) ->
+   <<(encode_value(Type))/binary, $/, (encode_value(SubType))/binary>>.
+  
 
 %%
 %% encode header value  
