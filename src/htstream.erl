@@ -232,9 +232,9 @@ decode_chunk_head([Head, Pckt], _Pckt, Acc, S) ->
    [Len |_] = binary:split(Head, [<<" ">>, <<";">>]),
    case list_to_integer(binary_to_list(Len), 16) of
       0   ->
-         decode(Pckt, Acc, S#http{is=chunk_tail, length=0});
-         % <<_:2/binary, Rest/binary>> = Pckt,
-         % {lists:reverse(Acc), S#http{is=eof, recbuf=Rest}}; 
+         %decode(Pckt, Acc, S#http{is=chunk_tail, length=0});
+         <<_:2/binary, Rest/binary>> = Pckt,
+         {lists:reverse(Acc), S#http{is=eof, recbuf=Rest}}; 
       Val ->
          decode(Pckt, Acc, S#http{is=chunk_data, length=Val}) 
    end.
