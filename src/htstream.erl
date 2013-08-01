@@ -27,8 +27,6 @@
    new/0,
    new/1,
    state/1,
-   header/2,
-   header/3,   
    decode/1, 
    decode/2, 
    encode/1, 
@@ -82,23 +80,6 @@ state(#http{is=chunk_data}) -> payload;
 state(#http{is=chunk_tail}) -> payload;
 state(#http{is=eoh})     -> eoh;
 state(#http{is=eof})     -> eof.
-
-%%
-%% check http header
--spec(header/2 :: (atom() | binary(), #http{}) -> any()).
--spec(header/3 :: (atom() | binary(), any(), #http{}) -> any()).
-
-header(Header, S) ->
-   case lists:keyfind(Header, 1, S#http.headers) of
-      false    -> exit(badarg);
-      {_, Val} -> Val
-   end.
-
-header(Header, Default, S) ->
-   case lists:keyfind(Header, 1, S#http.headers) of
-      false    -> Default;
-      {_, Val} -> Val
-   end.
 
 
 %%
