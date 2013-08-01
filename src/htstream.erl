@@ -279,46 +279,10 @@ decode_check_payload(#http{htline={'DELETE', _}}=S) ->
    S#http{is=eof};
 decode_check_payload(S) ->
    element(2, alt(S, [
-      fun decode_payload_chunked/1,
-      fun decode_payload_entity/1,
-      fun decode_payload_eof/1
+      fun is_payload_chunked/1,
+      fun is_payload_entity/1,
+      fun is_payload_eof/1
    ])).
-
-decode_payload_chunked(S) ->
-   case lists:keyfind('Transfer-Encoding', 1, S#http.headers) of
-      {'Transfer-Encoding', <<"identity">>} ->
-         false;
-      {'Transfer-Encoding', <<"chunked">>}  ->
-         case lists:keyfind('Connection', 1, S#http.headers) of
-            {'Connection', <<"close">>} ->
-               false;
-            _ ->
-               {ok, S#http{is=eoh, length=chunked}}
-         end;
-      _ ->
-         false
-   end.
-
-decode_payload_entity(S) ->
-   case lists:keyfind('Transfer-Length', 1, S#http.headers) of
-      {'Transfer-Length', Len} ->
-         {ok, S#http{is=eoh, length=Len}};
-      _ ->
-         case lists:keyfind('Content-Length', 1, S#http.headers) of
-            {'Content-Length', Len} ->
-               {ok, S#http{is=eoh, length=Len}};
-            _ ->
-               false
-         end
-   end. 
-
-decode_payload_eof(S) ->
-   case lists:keyfind('Connection', 1, S#http.headers) of
-      {'Connection', <<"close">>} ->
-         {ok, S#http{is=eoh, length=inf}};
-      _ ->
-         false
-   end.
 
 %%
 %% TODO: support q-values
@@ -347,14 +311,28 @@ encode(Msg, _Acc, #http{is=idle}=S)   ->
 encode(Msg,  Acc, #http{is=header}=S) ->
    encode_header(Msg, Acc, S);
 
+%% decode entity payload (end-of-header / entity first byte)
+encode(Msg, Acc, #http{is=eoh, length=chunked}=S) ->
+   encode(Msg, Acc, S#http{is=chunk_data, length=0});
+encode(Msg, Acc, #http{is=eoh}=S) ->
+   encode(Msg, Acc, S#http{is=entity});
+
+
 %% encode entity payload
 encode(Pckt, Acc, #http{is=entity, length=Len}=S)
- when size(Pckt) < Len ->
+ when is_integer(Len), size(Pckt) < Len ->
    {lists:reverse([Pckt  | Acc]), S#http{length=Len - size(Pckt)}};
-encode(Pckt, Acc, #http{is=entity, length=Len}=S) ->
+   
+encode(Pckt, Acc, #http{is=entity, length=Len}=S)
+ when is_integer(Len) ->
    %% TODO: preserve Rest to sndbuf
    <<Chunk:Len/binary, _Rest/binary>> = Pckt,
    {lists:reverse([Chunk | Acc]), S#http{is=eof, length=0}};
+
+encode(Pckt, Acc, #http{is=entity, length=inf}=S) ->
+   % message length is determined by closed connection
+   {lists:reverse([Pckt  | Acc]), S};
+
 
 %% encode chunked payload 
 encode(eof,  Acc, #http{is=chunk_data}=S) ->
@@ -415,22 +393,57 @@ encode_header({_, _Url, Headers, Payload}, Acc, S)
    Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
    encode(Payload, Http, encode_check_payload(S#http{headers=Headers})).
 
-
-%% check if payload needs to be transmitted
+%%
+%% encode check message payload
+%% see http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4
+%%
+%% 1. Any response message which "MUST NOT" include a message-body 
+%%    (such as the 1xx, 204, and 304 responses and any response to 
+%%    a HEAD request) is always terminated by the first empty line 
+%%    after the header fields... (Not implemented)
+%%
+%% 2. If a Transfer-Encoding header field (section 14.41) is present 
+%%    and has any value other than "identity", then the transfer-length 
+%%    is defined by use of the "chunked" transfer-coding (section 3.6), 
+%%    unless the message is terminated by closing the connection.
+%%
+%% 3. If a Content-Length header field (section 14.13) is present, 
+%%    its decimal value in OCTETs represents both the entity-length 
+%%    and the transfer-length. The Content-Length header field MUST NOT 
+%%    be sent if these two lengths are different
+%%
+%% 4. If the message uses the media type "multipart/byteranges"... 
+%%    (Not implemented)
+%%
+%% 5. By the server closing the connection. 
+% encode_check_payload(#http{htline={'GET',  _}}=S) ->
+%    S#http{is=eof};
+% encode_check_payload(#http{htline={'HEAD', _}}=S) ->
+%    S#http{is=eof};
+% encode_check_payload(#http{htline={'DELETE', _}}=S) ->
+%    S#http{is=eof};
 encode_check_payload(S) ->
-   encode_check_entity(lists:keyfind('Content-Length', 1, S#http.headers), S).
+   element(2, alt(S, [
+      fun is_payload_chunked/1,
+      fun is_payload_entity/1,
+      fun is_payload_eof/1
+   ])).
 
-encode_check_entity({'Content-Length', Len}, S) ->
-   S#http{is=entity, length=Len};
-encode_check_entity(false, S) ->
-   encode_check_chunked(lists:keyfind('Transfer-Encoding', 1, S#http.headers), S).
+% %% check if payload needs to be transmitted
+% encode_check_payload(S) ->
+%    encode_check_entity(lists:keyfind('Content-Length', 1, S#http.headers), S).
 
-encode_check_chunked({'Transfer-Encoding', chunked}, S) ->
-   S#http{is=chunk_data};
-encode_check_chunked({'Transfer-Encoding', <<"chunked">>}, S) ->
-   S#http{is=chunk_data};
-encode_check_chunked(false, S) ->
-   S#http{is=eof}.
+% encode_check_entity({'Content-Length', Len}, S) ->
+%    S#http{is=entity, length=Len};
+% encode_check_entity(false, S) ->
+%    encode_check_chunked(lists:keyfind('Transfer-Encoding', 1, S#http.headers), S).
+
+% encode_check_chunked({'Transfer-Encoding', chunked}, S) ->
+%    S#http{is=chunk_data};
+% encode_check_chunked({'Transfer-Encoding', <<"chunked">>}, S) ->
+%    S#http{is=chunk_data};
+% encode_check_chunked(false, S) ->
+%    S#http{is=eof}.
 
 encode_chunk(Chunk, Acc, S) ->
    Size = integer_to_list(size(Chunk), 16),
@@ -582,5 +595,40 @@ alt(_, [H|T], X) ->
 alt(Y, [], _) ->
    Y.
 
+is_payload_chunked(S) ->
+   case lists:keyfind('Transfer-Encoding', 1, S#http.headers) of
+      {'Transfer-Encoding', <<"identity">>} ->
+         false;
+      {'Transfer-Encoding', <<"chunked">>}  ->
+         case lists:keyfind('Connection', 1, S#http.headers) of
+            {'Connection', <<"close">>} ->
+               false;
+            _ ->
+               {ok, S#http{is=eoh, length=chunked}}
+         end;
+      _ ->
+         false
+   end.
+
+is_payload_entity(S) ->
+   case lists:keyfind('Transfer-Length', 1, S#http.headers) of
+      {'Transfer-Length', Len} ->
+         {ok, S#http{is=eoh, length=Len}};
+      _ ->
+         case lists:keyfind('Content-Length', 1, S#http.headers) of
+            {'Content-Length', Len} ->
+               {ok, S#http{is=eoh, length=Len}};
+            _ ->
+               false
+         end
+   end. 
+
+is_payload_eof(S) ->
+   case lists:keyfind('Connection', 1, S#http.headers) of
+      {'Connection', <<"close">>} ->
+         {ok, S#http{is=eoh, length=inf}};
+      _ ->
+         false
+   end.
 
 
