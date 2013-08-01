@@ -88,20 +88,12 @@ state(#http{is=eof})     -> eof.
 -spec(header/2 :: (atom() | binary(), #http{}) -> any()).
 -spec(header/3 :: (atom() | binary(), any(), #http{}) -> any()).
 
-header(_, #http{is=idle}) ->
-   exit(badarg);
-header(_, #http{is=eof}) ->
-   exit(badarg);
 header(Header, S) ->
    case lists:keyfind(Header, 1, S#http.headers) of
       false    -> exit(badarg);
       {_, Val} -> Val
    end.
 
-header(_, _, #http{is=idle}) ->
-   exit(badarg);
-header(_, _, #http{is=eof}) ->
-   exit(badarg);
 header(Header, Default, S) ->
    case lists:keyfind(Header, 1, S#http.headers) of
       false    -> Default;
