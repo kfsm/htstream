@@ -163,9 +163,9 @@ decode(Pckt, Acc, #http{is=eof}=S) ->
 decode_http({more, _}, Pckt, S) ->
    {[], S#http{recbuf=Pckt}};
 decode_http({error, _}, _Pckt, _S) ->
-   {error, badarg};
+   exit(badarg);
 decode_http({ok, {http_error, _}, _}, _Pckt, _S) ->
-   {error, badarg};
+   exit(badarg);
 decode_http({ok, {http_request, Mthd, Url, Vsn}, Rest}, _Pckt, S) ->
    decode(Rest, [],
       S#http{
@@ -203,9 +203,9 @@ decode_url('*') ->
 decode_header({more, _}, Pckt, S) ->
    {[], S#http{recbuf=Pckt}};
 decode_header({error, _}, _Pckt, _S) ->
-   {error, badarg};
+   exit(badarg);
 decode_header({ok, {http_error, _}, _}, _Pckt, _S) ->
-   {error, badarg};
+   exit(badarg);
 decode_header({ok, http_eoh, Rest}, _Pckt, S) ->
    {A, B} = S#http.htline,
    {{A, B, lists:reverse(S#http.headers)}, decode_check_payload(S#http{recbuf=Rest})};
@@ -233,6 +233,7 @@ decode_chunk_head([Head, Pckt], _Pckt, Acc, S) ->
    case list_to_integer(binary_to_list(Len), 16) of
       0   ->
          %decode(Pckt, Acc, S#http{is=chunk_tail, length=0});
+         % TODO: decoder assumes that 0\r\n\r\n is arrived in single packet
          <<_:2/binary, Rest/binary>> = Pckt,
          {lists:reverse(Acc), S#http{is=eof, recbuf=Rest}}; 
       Val ->
