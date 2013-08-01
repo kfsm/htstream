@@ -26,7 +26,9 @@
 -export([
    new/0,
    new/1,
-   state/1, 
+   state/1,
+   header/2,
+   header/3,   
    decode/1, 
    decode/2, 
    encode/1, 
@@ -41,7 +43,7 @@
 %% public types 
 -type(method()  :: atom()).                        % request method
 -type(url()     :: binary()).                      % request url 
--type(header()  :: {atom(), binary() | integer}).  % http header
+-type(header()  :: {atom() | binary(), binary() | integer}).  % http header
 -type(request() :: {method(), url(), [header()]}). % http request
 -type(response():: {integer(), binary(), [header()]}). 
 -type(payload() :: binary()).                      % http payload
@@ -80,6 +82,32 @@ state(#http{is=chunk_data}) -> payload;
 state(#http{is=chunk_tail}) -> payload;
 state(#http{is=eoh})     -> eoh;
 state(#http{is=eof})     -> eof.
+
+%%
+%% check http header
+-spec(header/2 :: (atom() | binary(), #http{}) -> any()).
+-spec(header/3 :: (atom() | binary(), any(), #http{}) -> any()).
+
+header(_, #http{is=idle}) ->
+   exit(badarg);
+header(_, #http{is=eof}) ->
+   exit(badarg);
+header(Header, S) ->
+   case lists:keyfind(Header, 1, S#http.headers) of
+      false    -> exit(badarg);
+      {_, Val} -> Val
+   end.
+
+header(_, _, #http{is=idle}) ->
+   exit(badarg);
+header(_, _, #http{is=eof}) ->
+   exit(badarg);
+header(Header, Default, S) ->
+   case lists:keyfind(Header, 1, S#http.headers) of
+      false    -> Default;
+      {_, Val} -> Val
+   end.
+
 
 %%
 %% decodes http stream 
