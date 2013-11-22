@@ -296,6 +296,7 @@ decode_mime_type(Val) ->
       [Type]           -> {Type, '*'}
    end.
 
+
 %%%------------------------------------------------------------------
 %%%
 %%% encoder
@@ -322,7 +323,7 @@ encode(Msg, Acc, #http{is=eoh}=S) ->
 encode(Pckt, Acc, #http{is=entity, length=Len}=S)
  when is_integer(Len), size(Pckt) < Len ->
    {lists:reverse([Pckt  | Acc]), S#http{length=Len - size(Pckt)}};
-   
+
 encode(Pckt, Acc, #http{is=entity, length=Len}=S)
  when is_integer(Len) ->
    %% TODO: preserve Rest to sndbuf
@@ -358,10 +359,10 @@ encode_http(_, Msg, S)         -> encode_http_response(Msg, S).
 
 %%
 encode_http_request({Mthd, Url, _}=Msg, S) ->
-   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , Url, $ , encode_version(S#http.version), $\r, $\n]),
+   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , encode_url(Url), $ , encode_version(S#http.version), $\r, $\n]),
    encode(Msg, [Http], S#http{is=header});
 encode_http_request({Mthd, Url, _, _}=Msg, S) ->
-   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , Url, $ , encode_version(S#http.version), $\r, $\n]),
+   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , encode_url(Url), $ , encode_version(S#http.version), $\r, $\n]),
    encode(Msg, [Http], S#http{is=header}).
 
 encode_http_response({Status, _}=Msg, S) ->
@@ -454,6 +455,13 @@ encode_chunk(Chunk, Acc, S) ->
 %%
 encode_version({Major, Minor}) ->
    <<$H, $T, $T, $P, $/, (encode_value(Major))/binary, $., (encode_value(Minor))/binary>>.
+
+%%
+encode_url(undefined) ->
+   <<$/>>;
+encode_url(Url)
+ when is_binary(Url) ->
+   Url.
 
 %%
 %%
@@ -628,7 +636,8 @@ is_payload_eof(S) ->
       {'Connection', <<"close">>} ->
          {ok, S#http{is=eoh, length=inf}};
       _ ->
-         false
+         % look like http request / response go not carry on any payload
+         {ok, S#http{is=eof}}
    end.
 
 
