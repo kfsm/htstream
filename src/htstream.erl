@@ -29,6 +29,7 @@
   ,state/1
   ,version/1
   ,request/1
+  ,response/1
   ,packets/1
   ,octets/1
   ,decode/1
@@ -96,8 +97,15 @@ version(#http{version=X}) ->
 %% return http request
 -spec(request/1 :: (#http{}) -> list()).
 
-request(#http{htline={A, B}, headers=C}) ->
-   {A, B, C}.
+request(#http{htline={Method, Path}, headers=Head}) ->
+   {Method, Path, Head}.
+
+%%
+%% return http response
+-spec(response/1 :: (#http{}) -> {integer(), [header()]}).
+
+response(#http{htline=Code, headers=Head}) ->
+   {Code, Head}.
 
 %%
 %% return number of processed packets
@@ -409,11 +417,13 @@ encode_http_request({Mthd, Url, _, _}=Msg, S) ->
    encode(Msg, [Http], S#http{is=header}).
 
 encode_http_response({Status, _}=Msg, S) ->
-   Http = iolist_to_binary([encode_version(S#http.version), $ , encode_status(Status), $\r, $\n]),
-   encode(Msg, [Http], S#http{is=header});   
+   Code = http_status(Status),
+   Http = iolist_to_binary([encode_version(S#http.version), $ , encode_status(Code), $\r, $\n]),
+   encode(Msg, [Http], S#http{is=header, htline=Code});   
 encode_http_response({Status, _, _}=Msg, S) ->
-   Http = iolist_to_binary([encode_version(S#http.version), $ , encode_status(Status), $\r, $\n]),
-   encode(Msg, [Http], S#http{is=header}).
+   Code = http_status(Status),
+   Http = iolist_to_binary([encode_version(S#http.version), $ , encode_status(Code), $\r, $\n]),
+   encode(Msg, [Http], S#http{is=header, htline=Code}).
 
 %%
 encode_header({_, Headers}, Acc, S)
@@ -585,15 +595,16 @@ encode_status(501) -> <<"501 Not Implemented">>;
 encode_status(502) -> <<"502 Bad Gateway">>;
 encode_status(503) -> <<"503 Service Unavailable">>;
 encode_status(504) -> <<"504 Gateway Timeout">>;
-encode_status(505) -> <<"505 HTTP Version Not Supported">>;
+encode_status(505) -> <<"505 HTTP Version Not Supported">>.
 
 %encode_status(100) -> <<"100 Continue">>;
 %encode_status(101) -> <<"101 Switching Protocols">>;
-encode_status(ok)       -> encode_status(200);
-encode_status(created)  -> encode_status(201);
-encode_status(accepted) -> encode_status(202);
+http_status(X) when is_integer(X) -> X;
+http_status(ok)       -> 200;
+http_status(created)  -> 201;
+http_status(accepted) -> 202;
 %status(203) -> <<"203 Non-Authoritative Information">>;
-encode_status(no_content) -> encode_status(204);
+http_status(no_content) -> 204;
 %status(205) -> <<"205 Reset Content">>;
 %status(206) -> <<"206 Partial Content">>;
 %status(300) -> <<"300 Multiple Choices">>;
@@ -602,32 +613,33 @@ encode_status(no_content) -> encode_status(204);
 %status(303) -> <<"303 See Other">>;
 %status(304) -> <<"304 Not Modified">>;
 %status(307) -> <<"307 Temporary Redirect">>;
-encode_status(badarg) -> encode_status(400);
-encode_status(unauthorized) -> encode_status(401);
+http_status(badarg) -> 400;
+http_status(unauthorized) -> 401;
 %status(402) -> <<"402 Payment Required">>;
-encode_status(forbidden) -> encode_status(403);
-encode_status(not_found) -> encode_status(404);
-encode_status(not_allowed)    -> encode_status(405);
-encode_status(not_acceptable) -> encode_status(406);
+http_status(forbidden) -> 403;
+http_status(not_found) -> 404;
+http_status(enoent)    -> 404;
+http_status(not_allowed)    -> 405;
+http_status(not_acceptable) -> 406;
 %status(407) -> <<"407 Proxy Authentication Required">>;
 %status(408) -> <<"408 Request Timeout">>;
-encode_status(conflict) -> encode_status(409);
-encode_status(duplicate)-> encode_status(409);
+http_status(conflict) -> 409;
+http_status(duplicate)-> 409;
 %status(410) -> <<"410 Gone">>;
 %status(411) -> <<"411 Length Required">>;
 %status(412) -> <<"412 Precondition Failed">>;
 %status(413) -> <<"413 Request Entity Too Large">>;
 %status(414) -> <<"414 Request-URI Too Long">>;
-encode_status(bad_mime_type) -> encode_status(415);
+http_status(bad_mime_type) -> 415;
 %status(416) -> <<"416 Requested Range Not Satisfiable">>;
 %status(417) -> <<"417 Expectation Failed">>;
 %status(422) -> <<"422 Unprocessable Entity">>;
-encode_status(not_implemented) -> encode_status(501);
+http_status(not_implemented) -> 501;
 %status(502) -> <<"502 Bad Gateway">>;
-encode_status(not_available) -> encode_status(503);
+http_status(not_available) -> 503;
 %status(504) -> <<"504 Gateway Timeout">>;
 %status(505) -> <<"505 HTTP Version Not Supported">>.
-encode_status(_) -> encode_status(500).
+http_status(_) -> 500.
 
 
 %%%------------------------------------------------------------------
