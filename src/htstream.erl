@@ -28,8 +28,7 @@
   ,new/1
   ,state/1
   ,version/1
-  ,request/1
-  ,response/1
+  ,http/1
   ,packets/1
   ,octets/1
   ,decode/1
@@ -94,18 +93,14 @@ version(#http{version=X}) ->
    X.
 
 %%
-%% return http request
--spec(request/1 :: (#http{}) -> list()).
+%% return http request / response
+-spec(http/1 :: (#http{}) -> {request | response, any()}).
 
-request(#http{htline={Method, Path}, headers=Head}) ->
-   {Method, Path, Head}.
+http(#http{type=request,  htline={Method, Path}, headers=Head}) ->
+   {request,  {Method, Path, Head}};
 
-%%
-%% return http response
--spec(response/1 :: (#http{}) -> {integer(), [header()]}).
-
-response(#http{htline=Code, headers=Head}) ->
-   {Code, Head}.
+http(#http{type=response, htline={Status,  Msg}, headers=Head}) ->
+   {response, {Status, Msg,  Head}}.
 
 %%
 %% return number of processed packets
@@ -222,6 +217,7 @@ decode_http({ok, {http_request, Mthd, Url, Vsn}, Rest}, _Pckt, S) ->
    decode(Rest, [],
       S#http{
          is      = header,
+         type    = request,
          htline  = {decode_method(Mthd), decode_url(Url)},
          version = Vsn   
       }
@@ -230,6 +226,7 @@ decode_http({ok, {http_response, Vsn, Status, Msg}, Rest}, _Pckt, S) ->
    decode(Rest, [],
       S#http{
          is      = header,
+         type    = response,
          htline  = {Status, Msg},
          version = Vsn
       }
@@ -411,19 +408,19 @@ encode_http(_, Msg, S)         -> encode_http_response(Msg, S).
 %%
 encode_http_request({Mthd, Url, _}=Msg, S) ->
    Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , encode_url(Url), $ , encode_version(S#http.version), $\r, $\n]),
-   encode(Msg, [Http], S#http{is=header});
+   encode(Msg, [Http], S#http{is=header, type=request});
 encode_http_request({Mthd, Url, _, _}=Msg, S) ->
    Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , encode_url(Url), $ , encode_version(S#http.version), $\r, $\n]),
-   encode(Msg, [Http], S#http{is=header}).
+   encode(Msg, [Http], S#http{is=header, type=request}).
 
 encode_http_response({Status, _}=Msg, S) ->
-   Code = http_status(Status),
-   Http = iolist_to_binary([encode_version(S#http.version), $ , encode_status(Code), $\r, $\n]),
-   encode(Msg, [Http], S#http{is=header, htline=Code});   
+   X = {Code, Msg} = encode_status(Status),
+   Http = iolist_to_binary([encode_version(S#http.version), $ , integer_to_list(Code), $ , Msg, $\r, $\n]),
+   encode(Msg, [Http], S#http{is=header, htline=X});   
 encode_http_response({Status, _, _}=Msg, S) ->
-   Code = http_status(Status),
-   Http = iolist_to_binary([encode_version(S#http.version), $ , encode_status(Code), $\r, $\n]),
-   encode(Msg, [Http], S#http{is=header, htline=Code}).
+   X = {Code, Msg} = encode_status(Status),
+   Http = iolist_to_binary([encode_version(S#http.version), $ , integer_to_list(Code), $ , Msg, $\r, $\n]),
+   encode(Msg, [Http], S#http{is=header, htline=X}).
 
 %%
 encode_header({_, Headers}, Acc, S)
@@ -556,55 +553,54 @@ encode_value(Val)
 
 
 %% encode http status code response
-encode_status(100) -> <<"100 Continue">>;
-encode_status(101) -> <<"101 Switching Protocols">>;
-encode_status(200) -> <<"200 OK">>;
-encode_status(201) -> <<"201 Created">>;
-encode_status(202) -> <<"202 Accepted">>;
-encode_status(203) -> <<"203 Non-Authoritative Information">>;
-encode_status(204) -> <<"204 No Content">>;
-encode_status(205) -> <<"205 Reset Content">>;
-encode_status(206) -> <<"206 Partial Content">>;
-encode_status(300) -> <<"300 Multiple Choices">>;
-encode_status(301) -> <<"301 Moved Permanently">>;
-encode_status(302) -> <<"302 Found">>;
-encode_status(303) -> <<"303 See Other">>;
-encode_status(304) -> <<"304 Not Modified">>;
-encode_status(307) -> <<"307 Temporary Redirect">>;
-encode_status(400) -> <<"400 Bad Request">>;
-encode_status(401) -> <<"401 Unauthorized">>;
-encode_status(402) -> <<"402 Payment Required">>;
-encode_status(403) -> <<"403 Forbidden">>;
-encode_status(404) -> <<"404 Not Found">>;
-encode_status(405) -> <<"405 Method Not Allowed">>;
-encode_status(406) -> <<"406 Not Acceptable">>;
-encode_status(407) -> <<"407 Proxy Authentication Required">>;
-encode_status(408) -> <<"408 Request Timeout">>;
-encode_status(409) -> <<"409 Conflict">>;
-encode_status(410) -> <<"410 Gone">>;
-encode_status(411) -> <<"411 Length Required">>;
-encode_status(412) -> <<"412 Precondition Failed">>;
-encode_status(413) -> <<"413 Request Entity Too Large">>;
-encode_status(414) -> <<"414 Request-URI Too Long">>;
-encode_status(415) -> <<"415 Unsupported Media Type">>;
-encode_status(416) -> <<"416 Requested Range Not Satisfiable">>;
-encode_status(417) -> <<"417 Expectation Failed">>;
-encode_status(422) -> <<"422 Unprocessable Entity">>;
-encode_status(500) -> <<"500 Internal Server Error">>;
-encode_status(501) -> <<"501 Not Implemented">>;
-encode_status(502) -> <<"502 Bad Gateway">>;
-encode_status(503) -> <<"503 Service Unavailable">>;
-encode_status(504) -> <<"504 Gateway Timeout">>;
-encode_status(505) -> <<"505 HTTP Version Not Supported">>.
+encode_status(100) -> {100, <<"Continue">>};
+encode_status(101) -> {101, <<"Switching Protocols">>};
+encode_status(200) -> {200, <<"OK">>};
+encode_status(201) -> {201, <<"Created">>};
+encode_status(202) -> {202, <<"Accepted">>};
+encode_status(203) -> {203, <<"Non-Authoritative Information">>};
+encode_status(204) -> {204, <<"No Content">>};
+encode_status(205) -> {205, <<"Reset Content">>};
+encode_status(206) -> {206, <<"Partial Content">>};
+encode_status(300) -> {300, <<"Multiple Choices">>};
+encode_status(301) -> {301, <<"Moved Permanently">>};
+encode_status(302) -> {302, <<"Found">>};
+encode_status(303) -> {303, <<"See Other">>};
+encode_status(304) -> {304, <<"Not Modified">>};
+encode_status(307) -> {307, <<"Temporary Redirect">>};
+encode_status(400) -> {400, <<"Bad Request">>};
+encode_status(401) -> {401, <<"Unauthorized">>};
+encode_status(402) -> {402, <<"Payment Required">>};
+encode_status(403) -> {403, <<"Forbidden">>};
+encode_status(404) -> {404, <<"Not Found">>};
+encode_status(405) -> {405, <<"Method Not Allowed">>};
+encode_status(406) -> {406, <<"Not Acceptable">>};
+encode_status(407) -> {407, <<"Proxy Authentication Required">>};
+encode_status(408) -> {408, <<"Request Timeout">>};
+encode_status(409) -> {409, <<"Conflict">>};
+encode_status(410) -> {410, <<"Gone">>};
+encode_status(411) -> {411, <<"Length Required">>};
+encode_status(412) -> {412, <<"Precondition Failed">>};
+encode_status(413) -> {413, <<"Request Entity Too Large">>};
+encode_status(414) -> {414, <<"Request-URI Too Long">>};
+encode_status(415) -> {415, <<"Unsupported Media Type">>};
+encode_status(416) -> {416, <<"Requested Range Not Satisfiable">>};
+encode_status(417) -> {417, <<"Expectation Failed">>};
+encode_status(422) -> {422, <<"Unprocessable Entity">>};
+encode_status(500) -> {500, <<"Internal Server Error">>};
+encode_status(501) -> {501, <<"Not Implemented">>};
+encode_status(502) -> {502, <<"Bad Gateway">>};
+encode_status(503) -> {503, <<"Service Unavailable">>};
+encode_status(504) -> {504, <<"Gateway Timeout">>};
+encode_status(505) -> {505, <<"HTTP Version Not Supported">>};
 
 %encode_status(100) -> <<"100 Continue">>;
 %encode_status(101) -> <<"101 Switching Protocols">>;
-http_status(X) when is_integer(X) -> X;
-http_status(ok)       -> 200;
-http_status(created)  -> 201;
-http_status(accepted) -> 202;
+encode_status(ok)       -> encode_status(200);
+encode_status(created)  -> encode_status(201);
+encode_status(accepted) -> encode_status(202);
 %status(203) -> <<"203 Non-Authoritative Information">>;
-http_status(no_content) -> 204;
+encode_status(no_content) -> encode_status(204);
 %status(205) -> <<"205 Reset Content">>;
 %status(206) -> <<"206 Partial Content">>;
 %status(300) -> <<"300 Multiple Choices">>;
@@ -613,33 +609,33 @@ http_status(no_content) -> 204;
 %status(303) -> <<"303 See Other">>;
 %status(304) -> <<"304 Not Modified">>;
 %status(307) -> <<"307 Temporary Redirect">>;
-http_status(badarg) -> 400;
-http_status(unauthorized) -> 401;
+encode_status(badarg) -> encode_status(400);
+encode_status(unauthorized) -> encode_status(401);
 %status(402) -> <<"402 Payment Required">>;
-http_status(forbidden) -> 403;
-http_status(not_found) -> 404;
-http_status(enoent)    -> 404;
-http_status(not_allowed)    -> 405;
-http_status(not_acceptable) -> 406;
+encode_status(forbidden) -> encode_status(403);
+encode_status(not_found) -> encode_status(404);
+encode_status(enoent)    -> encode_status(404);
+encode_status(not_allowed)    -> encode_status(405);
+encode_status(not_acceptable) -> encode_status(406);
 %status(407) -> <<"407 Proxy Authentication Required">>;
 %status(408) -> <<"408 Request Timeout">>;
-http_status(conflict) -> 409;
-http_status(duplicate)-> 409;
+encode_status(conflict) -> encode_status(409);
+encode_status(duplicate)-> encode_status(409);
 %status(410) -> <<"410 Gone">>;
 %status(411) -> <<"411 Length Required">>;
 %status(412) -> <<"412 Precondition Failed">>;
 %status(413) -> <<"413 Request Entity Too Large">>;
 %status(414) -> <<"414 Request-URI Too Long">>;
-http_status(bad_mime_type) -> 415;
+encode_status(bad_mime_type) -> encode_status(415);
 %status(416) -> <<"416 Requested Range Not Satisfiable">>;
 %status(417) -> <<"417 Expectation Failed">>;
 %status(422) -> <<"422 Unprocessable Entity">>;
-http_status(not_implemented) -> 501;
+encode_status(not_implemented) -> encode_status(501);
 %status(502) -> <<"502 Bad Gateway">>;
-http_status(not_available) -> 503;
+encode_status(not_available) -> encode_status(503);
 %status(504) -> <<"504 Gateway Timeout">>;
 %status(505) -> <<"505 HTTP Version Not Supported">>.
-http_status(_) -> 500.
+encode_status(_) -> encode_status(500).
 
 
 %%%------------------------------------------------------------------

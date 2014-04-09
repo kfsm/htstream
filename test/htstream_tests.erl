@@ -7,7 +7,7 @@ http_request_test() ->
    Req = [<<"GET / HTTP/1.1\r\n">>],
    {_, Http} = decode_request(Req),
    ?assert(header =:= htstream:state(Http)),
-   ?assert({'GET', <<"/">>, []} =:= htstream:request(Http)),
+   ?assert({request, {'GET', <<"/">>, []}} =:= htstream:http(Http)),
    ?assert(length(Req) =:= htstream:packets(Http)),
    ?assert(iolist_size(Req) =:= htstream:octets(Http)).
 
@@ -23,7 +23,7 @@ http_get_headers_test() ->
    Head = [{'Host', <<"localhost:80">>}, {'Accept', [{'*','*'}]}],
    {{'GET', <<"/">>, Head}, Http} = decode_request(Req),
    ?assert(eof =:= htstream:state(Http)),
-   ?assert({'GET', <<"/">>, Head} =:= htstream:request(Http)),
+   ?assert({request, {'GET', <<"/">>, Head}} =:= htstream:http(Http)),
    ?assert(length(Req) =:= htstream:packets(Http)),
    ?assert(iolist_size(Req) =:= htstream:octets(Http)).
 
@@ -40,7 +40,7 @@ http_post_headers_test() ->
    Head = [{'Host', <<"localhost:80">>}, {'Accept', [{'*','*'}]}, {'Content-Length', 10}],   
    {{'POST', <<"/">>, Head}, Http} = decode_request(Req),
    ?assert(eoh =:= htstream:state(Http)),
-   ?assert({'POST', <<"/">>, Head} =:= htstream:request(Http)),
+   ?assert({request, {'POST', <<"/">>, Head}} =:= htstream:http(Http)),
    ?assert(length(Req) =:= htstream:packets(Http)),
    ?assert(iolist_size(Req) =:= htstream:octets(Http)).
 

@@ -2,6 +2,7 @@
 
 -record(http, {
    is       = undefined :: atom(),                       %% parser state
+   type     = undefined :: request | response,           %% stream type 
    version  = undefined :: any(),                        %% http version
    htline   = undefined :: any(),                        %% http request / response line
    length   = undefined :: atom() | integer(),           %% length of expected content
