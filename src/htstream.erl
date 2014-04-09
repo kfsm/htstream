@@ -416,11 +416,11 @@ encode_http_request({Mthd, Url, _, _}=Msg, S) ->
 encode_http_response({Status, _}=Msg, S) ->
    X = {Code, Text} = encode_status(Status),
    Http = iolist_to_binary([encode_version(S#http.version), $ , integer_to_list(Code), $ , Text, $\r, $\n]),
-   encode(Msg, [Http], S#http{is=header, htline=X});   
+   encode(Msg, [Http], S#http{is=header, type=response, htline=X});   
 encode_http_response({Status, _, _}=Msg, S) ->
    X = {Code, Text} = encode_status(Status),
    Http = iolist_to_binary([encode_version(S#http.version), $ , integer_to_list(Code), $ , Text, $\r, $\n]),
-   encode(Msg, [Http], S#http{is=header, htline=X}).
+   encode(Msg, [Http], S#http{is=header, type=response, htline=X}).
 
 %%
 encode_header({_, Headers}, Acc, S)
