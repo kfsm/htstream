@@ -368,6 +368,9 @@ encode(Msg, Acc, #http{is=eoh}=S) ->
 
 
 %% encode entity payload
+encode(eof,  Acc, #http{is=entity}=S) ->
+   encode_result(Acc, S#http{is = eof, length = 0});
+
 encode(Pckt, Acc, #http{is=entity, length=Len}=S)
  when is_integer(Len), size(Pckt) < Len ->
    encode_result([Pckt  | Acc], S#http{length = Len - byte_size(Pckt)});
