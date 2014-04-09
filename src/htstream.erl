@@ -29,7 +29,6 @@
   ,state/1
   ,version/1
   ,request/1
-  ,headers/1
   ,packets/1
   ,octets/1
   ,decode/1
@@ -97,15 +96,8 @@ version(#http{version=X}) ->
 %% return http request
 -spec(request/1 :: (#http{}) -> list()).
 
-request(#http{htline=X}) ->
-   X.
-
-%%
-%% return list of headers
--spec(headers/1 :: (#http{}) -> list()).
-
-headers(#http{headers=X}) ->
-   X.
+request(#http{htline={A, B}, headers=C}) ->
+   {A, B, C}.
 
 %%
 %% return number of processed packets
