@@ -147,8 +147,8 @@ decode(Msg, S) ->
 
 encode(Msg) ->
    encode(Msg, new()).
-encode(Msg, Http) ->
-   encode(Msg, [], Http).
+encode(Msg, #http{}=S) ->
+   encode(Msg, [], S).
 
 
 
@@ -370,17 +370,17 @@ encode(Msg, Acc, #http{is=eoh}=S) ->
 %% encode entity payload
 encode(Pckt, Acc, #http{is=entity, length=Len}=S)
  when is_integer(Len), size(Pckt) < Len ->
-   {lists:reverse([Pckt  | Acc]), S#http{length=Len - size(Pckt)}};
+   encode_result([Pckt  | Acc], S#http{length = Len - byte_size(Pckt)});
 
 encode(Pckt, Acc, #http{is=entity, length=Len}=S)
  when is_integer(Len) ->
    %% TODO: preserve Rest to sndbuf
    <<Chunk:Len/binary, _Rest/binary>> = Pckt,
-   {lists:reverse([Chunk | Acc]), S#http{is=eof, length=0}};
+   encode_result([Chunk | Acc], S#http{is = eof, length = 0});
 
 encode(Pckt, Acc, #http{is=entity, length=inf}=S) ->
    % message length is determined by closed connection
-   {lists:reverse([Pckt  | Acc]), S};
+   encode_result([Pckt  | Acc], S);
 
 
 %% encode chunked payload 
@@ -392,7 +392,16 @@ encode(Pckt, Acc, #http{is=chunk_data}=S) ->
    encode_chunk(Pckt, Acc, S);
 
 encode(_Pckt, Acc, #http{is=eof}=S) ->
-   {lists:reverse(Acc), S}.
+   encode_result(Acc, S).
+
+%% 
+encode_result(Acc, #http{}=S) ->
+   {lists:reverse(Acc), 
+      S#http{
+         packets = S#http.packets + 1
+        ,octets  = S#http.octets  + erlang:iolist_size(Acc)
+      }
+   }.
 
 %%
 encode_http('OPTIONS', Msg, S) -> encode_http_request(Msg, S);
@@ -426,13 +435,13 @@ encode_http_response({Status, _, _}=Msg, S) ->
 encode_header({_, Headers}, Acc, S)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
-   Http = lists:reverse([iolist_to_binary([Head, $\r, $\n]) | Acc]),
-   {Http, encode_check_payload(S#http{headers=Headers})};
+   Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
+   encode_result(Http, encode_check_payload(S#http{headers=Headers}));
 encode_header({_, _Url, Headers}, Acc, S)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
-   Http = lists:reverse([iolist_to_binary([Head, $\r, $\n]) | Acc]),
-   {Http, encode_check_payload(S#http{headers=Headers})};
+   Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
+   encode_result(Http, encode_check_payload(S#http{headers=Headers}));
 encode_header({_, Headers, Payload}, Acc, S)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
@@ -499,8 +508,7 @@ encode_check_payload(S) ->
 encode_chunk(Chunk, Acc, S) ->
    Size = integer_to_list(size(Chunk), 16),
    Chnk = iolist_to_binary([<<(list_to_binary(Size))/binary, $\r, $\n>>, Chunk, <<$\r, $\n>>]),
-   Http = lists:reverse([Chnk | Acc]),
-   {Http, S}.
+   encode_result([Chnk | Acc], S).
 
 %%
 encode_version({Major, Minor}) ->
