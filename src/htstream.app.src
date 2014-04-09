@@ -1,10 +1,8 @@
 {application, htstream,
    [
       {description, "http stream parser"},
-      {vsn,         "0.6.0"},
-      {modules,     [
-         htstream
-      ]},
+      {vsn,         "0.7.0"},
+      {modules,     []},
       {registered,  []},
       {applications,[
          kernel, stdlib

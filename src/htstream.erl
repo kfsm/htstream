@@ -24,13 +24,18 @@
 -include("htstream.hrl").
 
 -export([
-   new/0,
-   new/1,
-   state/1,
-   decode/1, 
-   decode/2, 
-   encode/1, 
-   encode/2 
+   new/0
+  ,new/1
+  ,state/1
+  ,version/1
+  ,request/1
+  ,headers/1
+  ,packets/1
+  ,octets/1
+  ,decode/1
+  ,decode/2
+  ,encode/1
+  ,encode/2 
 ]).
 
 -export_type([
@@ -81,18 +86,64 @@ state(#http{is=chunk_tail}) -> payload;
 state(#http{is=eoh})     -> eoh;
 state(#http{is=eof})     -> eof.
 
+%%
+%% return version of http stream
+-spec(version/1 :: (#http{}) -> {integer(), integer()} | undefined).
+
+version(#http{version=X}) ->
+   X.
+
+%%
+%% return http request
+-spec(request/1 :: (#http{}) -> list()).
+
+request(#http{htline=X}) ->
+   X.
+
+%%
+%% return list of headers
+-spec(headers/1 :: (#http{}) -> list()).
+
+headers(#http{headers=X}) ->
+   X.
+
+%%
+%% return number of processed packets
+-spec(packets/1 :: (#http{}) -> integer()).
+
+packets(#http{packets=X}) ->
+   X.
+
+%%
+%% return number of processed octets
+-spec(octets/1 :: (#http{}) -> integer()).
+
+octets(#http{octets=X}) ->
+   X.
 
 %%
 %% decodes http stream 
 %% returns parsed value and new parser state
 -spec(decode/2 :: (binary(), #http{}) -> {iolist() | request() | response(), #http{}}).
 
+decode(#http{}=S) ->
+   decode(<<>>, S);
 decode(Msg) ->
    decode(Msg, new()).
+
 decode(Msg, #http{recbuf = <<>>}=S) ->
-   decode(Msg, [], S);
+   decode(Msg, [], 
+      S#http{
+         packets = S#http.packets + 1
+        ,octets  = S#http.octets  + erlang:iolist_size(Msg)
+      });
 decode(Msg, S) ->
-   decode(iolist_to_binary([S#http.recbuf, Msg]), [], S#http{recbuf = <<>>}).
+   decode(iolist_to_binary([S#http.recbuf, Msg]), [], 
+      S#http{
+         recbuf = <<>>
+        ,packets = S#http.packets + 1
+        ,octets  = S#http.octets  + erlang:iolist_size(Msg)
+      }).
 
 %%
 %% encode http stream
@@ -209,7 +260,7 @@ decode_header({ok, {http_error, _}, _}, _Pckt, _S) ->
    exit(badarg);
 decode_header({ok, http_eoh, Rest}, _Pckt, S) ->
    {A, B} = S#http.htline,
-   {{A, B, lists:reverse(S#http.headers)}, decode_check_payload(S#http{recbuf=Rest})};
+   {{A, B, lists:reverse(S#http.headers)}, decode_check_payload(S#http{headers=lists:reverse(S#http.headers), recbuf=Rest})};
 decode_header({ok, {http_header, _I, Head, _R, Val}, Rest}, _Pckt, S) -> 
    decode(Rest, [], S#http{headers=[decode_header_value(Head, Val)|S#http.headers]}).
 
