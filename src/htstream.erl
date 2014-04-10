@@ -94,13 +94,16 @@ version(#http{version=X}) ->
 
 %%
 %% return http request / response
--spec(http/1 :: (#http{}) -> {request | response, any()}).
+-spec(http/1 :: (#http{}) -> {request | response, any()} | undefined).
 
 http(#http{type=request,  htline={Method, Path}, headers=Head}) ->
    {request,  {Method, Path, Head}};
 
 http(#http{type=response, htline={Status,  Msg}, headers=Head}) ->
-   {response, {Status, Msg,  Head}}.
+   {response, {Status, Msg,  Head}};
+
+http(#http{}) ->
+   undefined.
 
 %%
 %% return number of processed packets
@@ -419,11 +422,13 @@ encode_http(_, Msg, S)         -> encode_http_response(Msg, S).
 
 %%
 encode_http_request({Mthd, Url, _}=Msg, S) ->
-   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , encode_url(Url), $ , encode_version(S#http.version), $\r, $\n]),
-   encode(Msg, [Http], S#http{is=header, type=request});
+   Uri  = encode_url(Url),
+   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , Uri, $ , encode_version(S#http.version), $\r, $\n]),
+   encode(Msg, [Http], S#http{is=header, type=request, htline={Mthd, Uri}});
 encode_http_request({Mthd, Url, _, _}=Msg, S) ->
-   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , encode_url(Url), $ , encode_version(S#http.version), $\r, $\n]),
-   encode(Msg, [Http], S#http{is=header, type=request}).
+   Uri  = encode_url(Url),
+   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , Uri, $ , encode_version(S#http.version), $\r, $\n]),
+   encode(Msg, [Http], S#http{is=header, type=request, htline={Mthd, Uri}}).
 
 encode_http_response({Status, _}=Msg, S) ->
    X = {Code, Text} = encode_status(Status),
