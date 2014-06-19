@@ -197,7 +197,6 @@ decode(Pckt, Acc, #http{is=chunk_head, length=0}=S) ->
 
 decode(Pckt, Acc, #http{is=chunk_data, length=Len}=S)
  when size(Pckt) < Len ->
-   %% TODO: Should buffer chunk data (until it is fully received) 
    {lists:reverse([Pckt  | Acc]), S#http{length=Len - size(Pckt)}};
 
 decode(Pckt, Acc, #http{is=chunk_data, length=Len}=S) ->
@@ -206,6 +205,33 @@ decode(Pckt, Acc, #http{is=chunk_data, length=Len}=S) ->
 
 decode(Pckt, Acc, #http{is=chunk_tail}=S) ->
    decode_chunk_tail(binary:split(Pckt, <<"\r\n">>), Pckt, Acc, S);  
+
+%% decode web-socket frame
+decode(<<_:4, Code:4, 0:1, 126:7, Len:16, Rest/binary>>, Acc, #http{is=websock, length=0}=State) ->
+   decode(Rest, Acc, State#http{length=Len, opaque={Code, undefined}});
+
+decode(<<_:4, Code:4, 0:1, 127:7, Len:64, Rest/binary>>, Acc, #http{is=websock, length=0}=State) ->
+   decode(Rest, Acc, State#http{length=Len, opaque={Code, undefined}});
+
+decode(<<_:4, Code:4, 0:1, Len:7, Rest/binary>>, Acc, #http{is=websock, length=0}=State) ->
+   decode(Rest, Acc, State#http{length=Len, opaque={Code, undefined}});
+
+decode(<<_:4, Code:4, 1:1, 126:7, Len:16, Mask:4/binary, Rest/binary>>, Acc, #http{is=websock, length=0}=State) ->
+   decode(Rest, Acc, State#http{length=Len, opaque={Code, Mask}});
+
+decode(<<_:4, Code:4, 1:1, 127:7, Len:64, Mask:4/binary, Rest/binary>>, Acc, #http{is=websock, length=0}=State) ->
+   decode(Rest, Acc, State#http{length=Len, opaque={Code, Mask}});
+
+decode(<<_:4, Code:4, 1:1, Len:7, Mask:4/binary, Rest/binary>>, Acc, #http{is=websock, length=0}=State) ->
+   decode(Rest, Acc, State#http{length=Len, opaque={Code, Mask}});
+
+decode(Pckt, Acc, #http{is=websock, length=Len, opaque={_, Mask}}=State)
+ when size(Pckt) < Len ->
+   {lists:reverse([unmask(Mask, Pckt)  | Acc]), State#http{length=Len - size(Pckt)}};
+
+decode(Pckt, Acc, #http{is=websock, length=Len, opaque={_, Mask}}=State) ->
+   <<Chunk:Len/binary, Rest/binary>> = Pckt,
+   decode(Rest, [unmask(Mask, Chunk) | Acc], State#http{length=0});
 
 decode(Pckt, Acc, #http{is=eof}=State) ->
    {lists:reverse(Acc), State#http{recbuf=Pckt}}.
@@ -262,29 +288,16 @@ decode_header({ok, {http_error, _}, _}, _Pckt, _S) ->
    exit(badarg);
 decode_header({ok, {http_header, _I, Head, _R, Val}, Rest}, _Pckt, S) -> 
    decode(Rest, [], S#http{headers=[decode_header_value(Head, Val)|S#http.headers]});
-decode_header({ok, http_eoh, Rest}, _Pckt, #http{type=request, htline={'GET', _}}=State) ->
-   {Mthd, Url} = State#http.htline,
-   Head = lists:reverse(State#http.headers),
-   case lists:keyfind('Upgrade', 1, Head) of
-      {_, <<"websocket">>} ->
-         {_, <<"Upgrade">>} = lists:keyfind('Connection', 1, Head),
-         {_,       Version} = lists:keyfind(<<"Sec-Websocket-Version">>, 1, Head),
-         {{Mthd, Url, Head}, 
-            State#http{
-               is      = websock
-              ,version = erlang:list_to_integer(erlang:binary_to_list(Version))
-              ,headers = Head  
-              ,recbuf  = Rest
-            }
-         };
-      _ ->
-         {{Mthd, Url, Head}, decode_check_payload(State#http{headers=Head, recbuf=Rest})}
-   end;
 decode_header({ok, http_eoh, Rest}, _Pckt, State) ->
    {Mthd, Url} = State#http.htline,
-   Head = lists:reverse(State#http.headers),
-   {{Mthd, Url, Head}, decode_check_payload(State#http{headers=Head, recbuf=Rest})}.
-
+   Head        = lists:reverse(State#http.headers),
+   case is_websock(Mthd, Head) of
+      true  ->
+         {_, Version} = lists:keyfind(<<"Sec-Websocket-Version">>, 1, Head),
+         {{Mthd, Url, Head}, State#http{is=websock, version=btoi(Version), headers=Head, recbuf=Rest}};
+      false ->
+         {{Mthd, Url, Head}, decode_check_payload(State#http{headers=Head, recbuf=Rest})}
+   end.
 
 
 %% parse header value
@@ -462,21 +475,16 @@ encode_http_response({Status, _, _}=Msg, S) ->
    encode(Msg, [Http], S#http{is=header, type=response, htline=X}).
 
 %%
-encode_header({101, Headers}, Acc, State) ->
-   Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
-   Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
-   case lists:keyfind('Upgrade', 1, Headers) of
-      {_, <<"websocket">>} ->
-         {_, <<"Upgrade">>} = lists:keyfind('Connection', 1, Headers),
-         encode_result(Http, State#http{is=websock, headers=Headers});   
-      _ ->
-         encode_result(Http, encode_check_payload(State#http{headers=Headers}))
-   end;
-encode_header({_, Headers}, Acc, S)
+encode_header({Code, Headers}, Acc, State)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
    Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
-   encode_result(Http, encode_check_payload(S#http{headers=Headers}));
+   case is_websock(Code, Head) of
+      true  ->
+         encode_result(Http, State#http{is=websock, headers=Headers});   
+      false ->
+         encode_result(Http, encode_check_payload(State#http{headers=Headers}))
+   end;
 encode_header({_, _Url, Headers}, Acc, S)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
@@ -740,3 +748,51 @@ is_payload_eof(S) ->
    end.
 
 
+%%
+%% check if http stream is web socket
+is_websock('GET', Head) ->
+   case lists:keyfind('Upgrade', 1, Head) of
+      {_, <<"websocket">>} ->
+         case lists:keyfind('Connection', 1, Head) of
+            {_, <<"Upgrade">>} ->
+               true;
+            _ ->
+               false
+         end;
+      _ ->
+         false
+   end;
+
+is_websock(101, Head) ->
+   case lists:keyfind('Upgrade', 1, Head) of
+      {_, <<"websocket">>} ->
+         case lists:keyfind('Connection', 1, Head) of
+            {_, <<"Upgrade">>} ->
+               true;
+            _ ->
+               false
+         end;
+      _ ->
+         false
+   end;
+
+is_websock(_, _) ->
+   false.
+
+%%
+%% binary to int
+btoi(X)
+ when is_binary(X) ->
+   erlang:list_to_integer(erlang:binary_to_list(X)).
+
+%%
+%% unmask websocket frame
+unmask(undefined, Pckt) ->
+   Pckt;
+unmask(Mask, Pckt) ->
+   unmask(0, Mask, Pckt, <<>>).
+
+unmask(I, Mask, <<X:8, Rest/binary>>, Acc) ->
+   unmask(I + 1, Mask, Rest, <<Acc/binary, (X bxor binary:at(Mask, I rem 4)):8>>);
+unmask(_, _Mask, <<>>, Acc) ->
+   Acc.

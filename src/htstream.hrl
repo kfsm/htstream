@@ -10,5 +10,6 @@
    headers  = []        :: [{atom() | binary(), any()}], %% list of http headers
    packets  = 0         :: integer(),                    %% number of processed packets
    octets   = 0         :: integer(),                    %% number of processed bytes
+   opaque   = undefined :: any(),                        %% opaque extension state
    recbuf   = <<>>      :: binary()                      %% internal receive buffer
 }).
