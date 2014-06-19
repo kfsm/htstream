@@ -267,8 +267,8 @@ decode_header({ok, http_eoh, Rest}, _Pckt, #http{type=request, htline={'GET', _}
    Head = lists:reverse(State#http.headers),
    case lists:keyfind('Upgrade', 1, Head) of
       {_, <<"websocket">>} ->
-         % {_, <<"Upgrade">>} = lists:keyfind('Connection', 1, Head),
-         {_, Version} = lists:keyfind(<<"Sec-Websocket-Version">>, 1, Head),
+         {_, <<"Upgrade">>} = lists:keyfind('Connection', 1, Head),
+         {_,       Version} = lists:keyfind(<<"Sec-Websocket-Version">>, 1, Head),
          {{Mthd, Url, Head}, 
             State#http{
                is      = websock
@@ -462,6 +462,16 @@ encode_http_response({Status, _, _}=Msg, S) ->
    encode(Msg, [Http], S#http{is=header, type=response, htline=X}).
 
 %%
+encode_header({101, Headers}, Acc, State) ->
+   Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
+   Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
+   case lists:keyfind('Upgrade', 1, Headers) of
+      {_, <<"websocket">>} ->
+         {_, <<"Upgrade">>} = lists:keyfind('Connection', 1, Headers),
+         encode_result(Http, State#http{is=websock, headers=Headers});   
+      _ ->
+         encode_result(Http, encode_check_payload(State#http{headers=Headers}))
+   end;
 encode_header({_, Headers}, Acc, S)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
