@@ -1,5 +1,6 @@
 
-
+%%
+%%
 -record(http, {
    is       = undefined :: atom(),                       %% parser state
    type     = undefined :: request | response,           %% stream type 

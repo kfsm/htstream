@@ -74,7 +74,8 @@ new(#http{recbuf=Buf, version=Vsn}) ->
 %%   * payload - handling payload
 %%   * eoh     - end of headers
 %%   * eof     - end of message  
--spec(state/1 :: (#http{}) -> idle | header | payload | eof).
+%%   * websock - websocket stream
+-spec(state/1 :: (#http{}) -> idle | header | payload | eof | websock).
 
 state(#http{is=idle})    -> idle;
 state(#http{is=header})  -> header;
@@ -83,7 +84,8 @@ state(#http{is=chunk_head}) -> payload;
 state(#http{is=chunk_data}) -> payload;
 state(#http{is=chunk_tail}) -> payload;
 state(#http{is=eoh})     -> eoh;
-state(#http{is=eof})     -> eof.
+state(#http{is=eof})     -> eof;
+state(#http{is=websock}) -> websock.
 
 %%
 %% return version of http stream
@@ -205,8 +207,8 @@ decode(Pckt, Acc, #http{is=chunk_data, length=Len}=S) ->
 decode(Pckt, Acc, #http{is=chunk_tail}=S) ->
    decode_chunk_tail(binary:split(Pckt, <<"\r\n">>), Pckt, Acc, S);  
 
-decode(Pckt, Acc, #http{is=eof}=S) ->
-   {lists:reverse(Acc), S#http{recbuf=Pckt}}.
+decode(Pckt, Acc, #http{is=eof}=State) ->
+   {lists:reverse(Acc), State#http{recbuf=Pckt}}.
 
 
 %% attempt to parse http request/response line
@@ -258,11 +260,31 @@ decode_header({error, _}, _Pckt, _S) ->
    exit(badarg);
 decode_header({ok, {http_error, _}, _}, _Pckt, _S) ->
    exit(badarg);
-decode_header({ok, http_eoh, Rest}, _Pckt, S) ->
-   {A, B} = S#http.htline,
-   {{A, B, lists:reverse(S#http.headers)}, decode_check_payload(S#http{headers=lists:reverse(S#http.headers), recbuf=Rest})};
 decode_header({ok, {http_header, _I, Head, _R, Val}, Rest}, _Pckt, S) -> 
-   decode(Rest, [], S#http{headers=[decode_header_value(Head, Val)|S#http.headers]}).
+   decode(Rest, [], S#http{headers=[decode_header_value(Head, Val)|S#http.headers]});
+decode_header({ok, http_eoh, Rest}, _Pckt, #http{type=request, htline={'GET', _}}=State) ->
+   {Mthd, Url} = State#http.htline,
+   Head = lists:reverse(State#http.headers),
+   case lists:keyfind('Upgrade', 1, Head) of
+      {_, <<"websocket">>} ->
+         % {_, <<"Upgrade">>} = lists:keyfind('Connection', 1, Head),
+         {_, Version} = lists:keyfind(<<"Sec-Websocket-Version">>, 1, Head),
+         {{Mthd, Url, Head}, 
+            State#http{
+               is      = websock
+              ,version = erlang:list_to_integer(erlang:binary_to_list(Version))
+              ,headers = Head  
+              ,recbuf  = Rest
+            }
+         };
+      _ ->
+         {{Mthd, Url, Head}, decode_check_payload(State#http{headers=Head, recbuf=Rest})}
+   end;
+decode_header({ok, http_eoh, Rest}, _Pckt, State) ->
+   {Mthd, Url} = State#http.htline,
+   Head = lists:reverse(State#http.headers),
+   {{Mthd, Url, Head}, decode_check_payload(State#http{headers=Head, recbuf=Rest})}.
+
 
 
 %% parse header value

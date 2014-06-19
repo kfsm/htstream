@@ -44,6 +44,26 @@ http_post_headers_test() ->
    ?assert(length(Req) =:= htstream:packets(Http)),
    ?assert(iolist_size(Req) =:= htstream:octets(Http)).
 
+%%
+%%
+http_websock_test() ->
+   Req = [
+      <<"GET / HTTP/1.1\r\n">>
+     ,<<"Upgrade: websocket\r\n">>
+     ,<<"Connection: Upgrade\r\n">>
+     ,<<"Host: localhost:80\r\n">>
+     ,<<"Sec-WebSocket-Key: nIbybgjSAkXg7XiX98Zaaw==\r\n">>
+     ,<<"Sec-WebSocket-Version: 13\r\n">>
+     ,<<"\r\n">>
+   ],
+   {{'GET', <<"/">>, Head}, Http} = decode_request(Req),
+   ?assertMatch(websock,  htstream:state(Http)),
+   ?assertMatch({_, <<"nIbybgjSAkXg7XiX98Zaaw==">>}, lists:keyfind(<<"Sec-Websocket-Key">>, 1, Head)),
+   ?assertMatch({request, {'GET', <<"/">>, Head}}, htstream:http(Http)),
+   ?assertEqual(length(Req), htstream:packets(Http)),
+   ?assertEqual(13, htstream:version(Http)),
+   ?assertEqual(iolist_size(Req), htstream:octets(Http)).
+
 
 
 %%
