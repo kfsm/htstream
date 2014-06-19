@@ -225,13 +225,15 @@ decode(<<_:4, Code:4, 1:1, 127:7, Len:64, Mask:4/binary, Rest/binary>>, Acc, #ht
 decode(<<_:4, Code:4, 1:1, Len:7, Mask:4/binary, Rest/binary>>, Acc, #http{is=websock, length=0}=State) ->
    decode(Rest, Acc, State#http{length=Len, opaque={Code, Mask}});
 
+ % <<FIN:1, _:3, Code:4, Mask:1, Len:7, Key:4/binary, Payload/binary>> = Msg,
+
 decode(Pckt, Acc, #http{is=websock, length=Len, opaque={_, Mask}}=State)
  when size(Pckt) < Len ->
    {lists:reverse([unmask(Mask, Pckt)  | Acc]), State#http{length=Len - size(Pckt)}};
 
 decode(Pckt, Acc, #http{is=websock, length=Len, opaque={_, Mask}}=State) ->
    <<Chunk:Len/binary, Rest/binary>> = Pckt,
-   decode(Rest, [unmask(Mask, Chunk) | Acc], State#http{length=0});
+   decode(Rest, [unmask(Mask, Chunk) | Acc], State#http{length=undefined});
 
 decode(Pckt, Acc, #http{is=eof}=State) ->
    {lists:reverse(Acc), State#http{recbuf=Pckt}}.
@@ -294,7 +296,7 @@ decode_header({ok, http_eoh, Rest}, _Pckt, State) ->
    case is_websock(Mthd, Head) of
       true  ->
          {_, Version} = lists:keyfind(<<"Sec-Websocket-Version">>, 1, Head),
-         {{Mthd, Url, Head}, State#http{is=websock, version=btoi(Version), headers=Head, recbuf=Rest}};
+         {{Mthd, Url, Head}, State#http{is=websock, length=0, version=btoi(Version), headers=Head, recbuf=Rest}};
       false ->
          {{Mthd, Url, Head}, decode_check_payload(State#http{headers=Head, recbuf=Rest})}
    end.
@@ -481,7 +483,7 @@ encode_header({Code, Headers}, Acc, State)
    Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
    case is_websock(Code, Head) of
       true  ->
-         encode_result(Http, State#http{is=websock, headers=Headers});   
+         encode_result(Http, State#http{is=websock, length=0, headers=Headers});   
       false ->
          encode_result(Http, encode_check_payload(State#http{headers=Headers}))
    end;
