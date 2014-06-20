@@ -74,8 +74,7 @@ new(#http{recbuf=Buf, version=Vsn}) ->
 %%   * payload - handling payload
 %%   * eoh     - end of headers
 %%   * eof     - end of message  
-%%   * websock - websocket stream
--spec(state/1 :: (#http{}) -> idle | header | payload | eof | websock).
+-spec(state/1 :: (#http{}) -> idle | header | payload | eof).
 
 state(#http{is=idle})    -> idle;
 state(#http{is=header})  -> header;
@@ -84,8 +83,7 @@ state(#http{is=chunk_head}) -> payload;
 state(#http{is=chunk_data}) -> payload;
 state(#http{is=chunk_tail}) -> payload;
 state(#http{is=eoh})     -> eoh;
-state(#http{is=eof})     -> eof;
-state(#http{is=websock}) -> websock.
+state(#http{is=eof})     -> eof.
 
 %%
 %% return version of http stream

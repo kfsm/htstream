@@ -20,6 +20,7 @@
 
 -export([
    new/1
+  ,state/1
   ,packets/1
   ,octets/1
   ,decode/2
@@ -49,6 +50,16 @@
 
 new(Type) ->
    #websock{type=Type}.
+
+
+%%
+%% check parser state
+%%   * payload - handling payload
+%%   * eof     - end of file  
+-spec(state/1 :: (websock()) -> payload | eof).
+
+state(#websock{code=8})  -> eof;
+state(#websock{})        -> payload.
 
 %%
 %% return number of processed packets
@@ -108,23 +119,18 @@ decode(<<_:4, Code:4, 1:1, 127:7, Len:64, Mask:4/binary, Rest/binary>>, Acc, #we
 decode(<<_:4, Code:4, 1:1, Len:7, Mask:4/binary, Rest/binary>>, Acc, #websock{length=0}=State) ->
    decode(Rest, Acc, State#websock{length=Len, code=Code, mask=Mask});
 
+%% decode payload frame
 decode(Pckt, Acc, #websock{length=Len}=State)
- when size(Pckt) =< Len ->
-   {lists:reverse([unmask(State#websock.mask, Pckt)  | Acc]), State#websock{length=Len - size(Pckt)}};
+ when size(Pckt) > Len ->
+   <<Chunk:Len/binary, Rest/binary>> = Pckt,
+   decode(Rest, [unmask(State#websock.mask, Chunk) | Acc], State#websock{length=0});
 
 decode(Pckt, Acc, #websock{length=Len}=State) ->
-   <<Chunk:Len/binary, Rest/binary>> = Pckt,
-   decode(Rest, [unmask(State#websock.mask, Chunk) | Acc], State#websock{length=0}).
+   {lists:reverse([unmask(State#websock.mask, Pckt)  | Acc]), State#websock{length=Len - size(Pckt)}}.
 
 
-   
-   % case is_websock(Mthd, Head) of
-   %    true  ->
-   %       {_, Version} = lists:keyfind(<<"Sec-Websocket-Version">>, 1, Head),
-   %       {{Mthd, Url, Head}, State#http{is=websock, length=0, version=btoi(Version), headers=Head, recbuf=Rest}};
-   %    false ->
-         
-   % end.
+
+
 
 
 %%%------------------------------------------------------------------
