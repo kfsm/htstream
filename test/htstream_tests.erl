@@ -57,11 +57,10 @@ http_websock_test() ->
      ,<<"\r\n">>
    ],
    {{'GET', <<"/">>, Head}, Http} = decode_request(Req),
-   ?assertMatch(websock,  htstream:state(Http)),
+   ?assertMatch(eof,  htstream:state(Http)),
    ?assertMatch({_, <<"nIbybgjSAkXg7XiX98Zaaw==">>}, lists:keyfind(<<"Sec-Websocket-Key">>, 1, Head)),
    ?assertMatch({request, {'GET', <<"/">>, Head}}, htstream:http(Http)),
    ?assertEqual(length(Req), htstream:packets(Http)),
-   ?assertEqual(13, htstream:version(Http)),
    ?assertEqual(iolist_size(Req), htstream:octets(Http)).
 
 
