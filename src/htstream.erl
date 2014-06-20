@@ -69,12 +69,13 @@ new(#http{recbuf=Buf, version=Vsn}) ->
 
 %%
 %% check parser state
-%%   * idle    - 
-%%   * header  - handling headers
-%%   * payload - handling payload
-%%   * eoh     - end of headers
-%%   * eof     - end of message  
--spec(state/1 :: (#http{}) -> idle | header | payload | eof).
+%%   idle    - 
+%%   header  - handling headers
+%%   payload - handling payload
+%%   eoh     - end of headers
+%%   eof     - end of message  
+%%   upgrade - upgrade is requested
+-spec(state/1 :: (#http{}) -> idle | header | payload | eof | upgrade).
 
 state(#http{is=idle})    -> idle;
 state(#http{is=header})  -> header;
@@ -83,7 +84,8 @@ state(#http{is=chunk_head}) -> payload;
 state(#http{is=chunk_data}) -> payload;
 state(#http{is=chunk_tail}) -> payload;
 state(#http{is=eoh})     -> eoh;
-state(#http{is=eof})     -> eof.
+state(#http{is=eof})     -> eof;
+state(#http{is=upgrade}) -> upgrade.
 
 %%
 %% return version of http stream
@@ -322,8 +324,13 @@ decode_chunk_tail([_, Pckt], _Pckt, Acc, S) ->
 %%    (Not implemented)
 %%
 %% 5. By the server closing the connection. 
-decode_check_payload(#http{htline={'GET',  _}}=S) ->
-   S#http{is=eof};
+decode_check_payload(#http{htline={'GET',  _}}=State) ->
+   case lists:keyfind('Connection', 1, State#http.headers) of
+      {_, <<"Upgrade">>} ->
+         State#http{is=upgrade};
+      _ ->
+         State#http{is=eof}
+   end;
 decode_check_payload(#http{htline={'HEAD', _}}=S) ->
    S#http{is=eof};
 decode_check_payload(#http{htline={'DELETE', _}}=S) ->
