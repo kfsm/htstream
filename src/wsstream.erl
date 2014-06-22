@@ -144,8 +144,16 @@ decode(Pckt, Acc, #websock{length=Len}=State) ->
 %% returns produces http message and new parser state
 -spec(encode/2 :: (iolist() | control(), websock()) -> {binary(), websock()}).
 
+encode(Msg, #websock{}=State)
+ when is_list(Msg) ->
+   encode(erlang:iolist_to_binary(Msg), [], State);
 encode(Msg, #websock{}=State) ->
-   encode(erlang:iolist_to_binary(Msg), [], State).
+   encode(Msg, [], State).
+
+encode(eof, Acc, #websock{}=State) ->
+   %%        FIN,      EOF  NOMASK  LEN
+   Frame = <<1:1, 0:3, 8:4,  0:1,   0:7>>,
+   encode_result([Frame | Acc], State#websock{code=8});
 
 encode(Msg, Acc, #websock{type=server}=State)
  when byte_size(Acc) > 16#ffff ->
