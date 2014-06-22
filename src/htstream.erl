@@ -18,7 +18,7 @@
 %%     http stream-oriented encoder / decoder.
 %%  
 %%  @todo
-%%     * recbuf optional feature
+%%     * optimize recbuf binary, append is expensive, make lists / queue model
 %%     * limit size recbuf
 -module(htstream).
 -include("htstream.hrl").

@@ -41,7 +41,7 @@
 %%
 %% public types 
 -type(control()    :: atom()).
--type(websock()    :: #websock{}).                       % http parser state
+-type(websock()    :: #websock{}).                       % websocket parser state
 
 
 %%
