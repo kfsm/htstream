@@ -30,6 +30,7 @@
 %% internal state
 -record(websock, {
    type     = undefined :: client | server               %% stream type 
+  ,is       = undefined :: atom()                        %% parser state
   ,code     = undefined :: integer()                     %% frame op-code
   ,mask     = undefined :: binary()                      %% frame mask 
   ,length   = 0         :: atom() | integer()            %% length of expected content
@@ -100,25 +101,21 @@ decode(Msg, State) ->
         ,octets  = State#websock.octets  + erlang:iolist_size(Msg)
       }).
 
+%%
+%% decode frame header
+decode(<<_:4, Code:4, Mask:1, Len:7, Rest/binary>>, Acc, #websock{length=0}=State) ->
+   decode_length(Rest, Acc, State#websock{length=Len, code=Code, mask=Mask});
 
-decode(<<_:4, Code:4, 0:1, 126:7, Len:16, Rest/binary>>, Acc, #websock{length=0}=State) ->
-   decode(Rest, Acc, State#websock{length=Len, code=Code});
+decode(Pckt, Acc, #websock{length=126}=State) ->
+   decode_length(Pckt, Acc, State);
 
-decode(<<_:4, Code:4, 0:1, 127:7, Len:64, Rest/binary>>, Acc, #websock{length=0}=State) ->
-   decode(Rest, Acc, State#websock{length=Len, code=Code});
+decode(Pckt, Acc, #websock{length=127}=State) ->
+   decode_length(Pckt, Acc, State);
 
-decode(<<_:4, Code:4, 0:1, Len:7, Rest/binary>>, Acc, #websock{length=0}=State) ->
-   decode(Rest, Acc, State#websock{length=Len, code=Code});
+decode(Pckt, Acc, #websock{mask=1}=State) ->
+   decode_mask(Pckt, Acc, State);
 
-decode(<<_:4, Code:4, 1:1, 126:7, Len:16, Mask:4/binary, Rest/binary>>, Acc, #websock{length=0}=State) ->
-   decode(Rest, Acc, State#websock{length=Len, code=Code, mask=Mask});
-
-decode(<<_:4, Code:4, 1:1, 127:7, Len:64, Mask:4/binary, Rest/binary>>, Acc, #websock{length=0}=State) ->
-   decode(Rest, Acc, State#websock{length=Len, code=Code, mask=Mask});
-
-decode(<<_:4, Code:4, 1:1, Len:7, Mask:4/binary, Rest/binary>>, Acc, #websock{length=0}=State) ->
-   decode(Rest, Acc, State#websock{length=Len, code=Code, mask=Mask});
-
+%%
 %% decode payload frame
 decode(Pckt, Acc, #websock{length=Len}=State)
  when size(Pckt) > Len ->
@@ -128,8 +125,33 @@ decode(Pckt, Acc, #websock{length=Len}=State)
 decode(Pckt, Acc, #websock{length=Len}=State) ->
    {lists:reverse([unmask(State#websock.mask, Pckt)  | Acc]), State#websock{length=Len - size(Pckt)}}.
 
+%%
+%% 
+decode_length(<<Len:16, Rest/binary>>, Acc, #websock{length=126}=State) ->
+   decode_mask(Rest, Acc, State#websock{length=Len});
 
+decode_length(Pckt, Acc, #websock{length=126}=State) ->
+   {lists:reverse(Acc), State#websock{recbuf=Pckt}};
 
+decode_length(<<Len:64, Rest/binary>>, Acc, #websock{length=127}=State) ->
+   decode_mask(Rest, Acc, State#websock{length=Len});
+
+decode_length(Pckt, Acc, #websock{length=127}=State) ->
+   {lists:reverse(Acc), State#websock{recbuf=Pckt}};
+
+decode_length(Pckt, Acc, State) ->
+   decode_mask(Pckt, Acc, State).
+
+%%
+%%
+decode_mask(<<Mask:4/binary, Rest/binary>>, Acc, #websock{mask=1}=State) ->
+   decode(Rest, Acc, State#websock{mask=Mask});
+
+decode_mask(Pckt, Acc, #websock{mask=1}=State) ->
+   {lists:reverse(Acc), State#websock{recbuf=Pckt}};
+
+decode_mask(Pckt, Acc, State) ->
+   decode(Pckt, Acc, State).
 
 
 
@@ -188,7 +210,7 @@ encode_result(Acc, #websock{}=State) ->
 %%%------------------------------------------------------------------
 
 %% unmask websocket frame
-unmask(undefined, Pckt) ->
+unmask(0,    Pckt) ->
    Pckt;
 unmask(Mask, Pckt) ->
    unmask(0, Mask, Pckt, <<>>).
@@ -197,36 +219,4 @@ unmask(I, Mask, <<X:8, Rest/binary>>, Acc) ->
    unmask(I + 1, Mask, Rest, <<Acc/binary, (X bxor binary:at(Mask, I rem 4)):8>>);
 unmask(_, _Mask, <<>>, Acc) ->
    Acc.
-
-
-% %%
-% %% check if http stream is web socket
-% is_websock('GET', Head) ->
-%    case lists:keyfind('Upgrade', 1, Head) of
-%       {_, <<"websocket">>} ->
-%          case lists:keyfind('Connection', 1, Head) of
-%             {_, <<"Upgrade">>} ->
-%                true;
-%             _ ->
-%                false
-%          end;
-%       _ ->
-%          false
-%    end;
-
-% is_websock(101, Head) ->
-%    case lists:keyfind('Upgrade', 1, Head) of
-%       {_, <<"websocket">>} ->
-%          case lists:keyfind('Connection', 1, Head) of
-%             {_, <<"Upgrade">>} ->
-%                true;
-%             _ ->
-%                false
-%          end;
-%       _ ->
-%          false
-%    end;
-
-% is_websock(_, _) ->
-%    false.
 
