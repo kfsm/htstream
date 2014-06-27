@@ -106,6 +106,9 @@ decode(Msg, State) ->
 decode(<<_:4, Code:4, Mask:1, Len:7, Rest/binary>>, Acc, #websock{length=0}=State) ->
    decode_length(Rest, Acc, State#websock{length=Len, code=Code, mask=Mask});
 
+decode(Pckt, Acc, #websock{length=0}=State) ->
+   {lists:reverse(Acc), State#websock{recbuf=Pckt}};
+
 decode(Pckt, Acc, #websock{length=126}=State) ->
    decode_length(Pckt, Acc, State);
 
