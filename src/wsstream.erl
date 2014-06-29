@@ -121,12 +121,13 @@ decode(Pckt, Acc, #websock{mask=1}=State) ->
 %%
 %% decode payload frame
 decode(Pckt, Acc, #websock{length=Len}=State)
- when size(Pckt) > Len ->
+ when size(Pckt) >= Len ->
    <<Chunk:Len/binary, Rest/binary>> = Pckt,
    decode(Rest, [unmask(State#websock.mask, Chunk) | Acc], State#websock{length=0});
 
-decode(Pckt, Acc, #websock{length=Len}=State) ->
-   {lists:reverse([unmask(State#websock.mask, Pckt)  | Acc]), State#websock{length=Len - size(Pckt)}}.
+decode(Pckt, Acc, #websock{}=State) ->
+   %% @todo: replace bin append with queue and head pattern match
+   {lists:reverse(Acc), State#websock{recbuf=Pckt}}.
 
 %%
 %% 
