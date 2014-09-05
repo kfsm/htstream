@@ -104,15 +104,15 @@ decode(Msg, State) ->
 %%
 %% decode frame header
 decode(<<_:4, Code:4, Mask:1, Len:7, Rest/binary>>, Acc, #websock{length=0}=State) ->
-   decode_length(Rest, Acc, State#websock{length=Len, code=Code, mask=Mask});
+   decode_length(Rest, Acc, State#websock{is=header, length=Len, code=Code, mask=Mask});
 
 decode(Pckt, Acc, #websock{length=0}=State) ->
    {lists:reverse(Acc), State#websock{recbuf=Pckt}};
 
-decode(Pckt, Acc, #websock{length=126}=State) ->
+decode(Pckt, Acc, #websock{is=header, length=127}=State) ->
    decode_length(Pckt, Acc, State);
 
-decode(Pckt, Acc, #websock{length=127}=State) ->
+decode(Pckt, Acc, #websock{is=header, length=126}=State) ->
    decode_length(Pckt, Acc, State);
 
 decode(Pckt, Acc, #websock{mask=1}=State) ->
@@ -132,13 +132,13 @@ decode(Pckt, Acc, #websock{}=State) ->
 %%
 %% 
 decode_length(<<Len:16, Rest/binary>>, Acc, #websock{length=126}=State) ->
-   decode_mask(Rest, Acc, State#websock{length=Len});
+   decode_mask(Rest, Acc, State#websock{is=packet, length=Len});
 
 decode_length(Pckt, Acc, #websock{length=126}=State) ->
    {lists:reverse(Acc), State#websock{recbuf=Pckt}};
 
 decode_length(<<Len:64, Rest/binary>>, Acc, #websock{length=127}=State) ->
-   decode_mask(Rest, Acc, State#websock{length=Len});
+   decode_mask(Rest, Acc, State#websock{is=packet, length=Len});
 
 decode_length(Pckt, Acc, #websock{length=127}=State) ->
    {lists:reverse(Acc), State#websock{recbuf=Pckt}};
@@ -149,13 +149,13 @@ decode_length(Pckt, Acc, State) ->
 %%
 %%
 decode_mask(<<Mask:4/binary, Rest/binary>>, Acc, #websock{mask=1}=State) ->
-   decode(Rest, Acc, State#websock{mask=Mask});
+   decode(Rest, Acc, State#websock{is=packet, mask=Mask});
 
 decode_mask(Pckt, Acc, #websock{mask=1}=State) ->
    {lists:reverse(Acc), State#websock{recbuf=Pckt}};
 
 decode_mask(Pckt, Acc, State) ->
-   decode(Pckt, Acc, State).
+   decode(Pckt, Acc, State#websock{is=packet}).
 
 
 
@@ -223,4 +223,5 @@ unmask(I, Mask, <<X:8, Rest/binary>>, Acc) ->
    unmask(I + 1, Mask, Rest, <<Acc/binary, (X bxor binary:at(Mask, I rem 4)):8>>);
 unmask(_, _Mask, <<>>, Acc) ->
    Acc.
+
 
