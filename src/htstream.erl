@@ -363,8 +363,8 @@ decode_mime_type(Val) ->
 
 %%
 %%
-encode(eof, _Acc, State) ->
-   {[], State};
+encode(eof, _Acc, #http{is=idle}=S) ->
+   {[], S};
 encode(Msg, _Acc, #http{is=idle}=S)   ->
    encode_http(erlang:element(1, Msg), Msg, S);
 
