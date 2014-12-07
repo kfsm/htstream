@@ -237,6 +237,8 @@ decode_http({ok, {http_response, Vsn, Status, Msg}, Rest}, _Pckt, S) ->
    ).
 
 %% attempt to decode method
+decode_method(<<"CONNECT">>) ->
+   'CONNECT';
 decode_method(Mthd) ->
    Mthd.
 
