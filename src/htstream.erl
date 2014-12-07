@@ -249,6 +249,8 @@ decode_url({absoluteURI, Scheme, Host, undefined, Path}) ->
 decode_url({absoluteURI, Scheme, Host, Port, Path}) ->
    <<(atom_to_binary(Scheme, utf8))/binary, $:, $/, $/, 
      Host/binary, $:, (list_to_binary(integer_to_list(Port)))/binary, Path/binary>>;
+decode_url({scheme, Host, Port}) ->
+   <<$h, $t, $t, $p, $:, $/, $/, Host/binary, $:, Port/binary>>;
 decode_url('*') ->
    <<$*>>.
 
