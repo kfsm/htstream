@@ -85,7 +85,9 @@ state(#http{is=chunk_data}) -> payload;
 state(#http{is=chunk_tail}) -> payload;
 state(#http{is=eoh})     -> eoh;
 state(#http{is=eof})     -> eof;
-state(#http{is=upgrade}) -> upgrade.
+state(#http{is=upgrade}) -> upgrade;
+state(#http{is=tunnel})  -> tunnel.
+
 
 %%
 %% return version of http stream
@@ -207,7 +209,10 @@ decode(Pckt, Acc, #http{is=chunk_tail}=S) ->
    decode_chunk_tail(binary:split(Pckt, <<"\r\n">>), Pckt, Acc, S);  
 
 decode(Pckt, Acc, #http{is=eof}=State) ->
-   {lists:reverse(Acc), State#http{recbuf=Pckt}}.
+   {lists:reverse(Acc), State#http{recbuf=Pckt}};
+
+decode(Pckt, Acc, #http{is=tunnel}=State) ->
+   {lists:reverse([Pckt|Acc]), State}.
 
 
 %% attempt to parse http request/response line
@@ -339,6 +344,8 @@ decode_check_payload(#http{htline={'HEAD', _}}=S) ->
    S#http{is=eof};
 decode_check_payload(#http{htline={'DELETE', _}}=S) ->
    S#http{is=eof};
+decode_check_payload(#http{htline={'CONNECT', _}}=S) ->
+   S#http{is=tunnel};
 decode_check_payload(S) ->
    element(2, alt(S, [
       fun is_payload_chunked/1,
@@ -410,8 +417,11 @@ encode(<<>>, Acc, #http{is=chunk_data}=S) ->
 encode(Pckt, Acc, #http{is=chunk_data}=S) ->
    encode_chunk(Pckt, Acc, S);
 
-encode(_Pckt, Acc, #http{is=eof}=S) ->
-   encode_result(Acc, S).
+encode(_Pckt, Acc, #http{is=eof}=State) ->
+   encode_result(Acc, State);
+
+encode(Pckt, Acc, #http{is=tunnel}=State) ->
+   encode_result([Pckt | Acc], State).
 
 %% 
 encode_result(Acc, #http{}=S) ->
@@ -431,6 +441,7 @@ encode_http('PUT', Msg, S)     -> encode_http_request(Msg, S);
 encode_http('DELETE', Msg, S)  -> encode_http_request(Msg, S);
 encode_http('TRACE', Msg, S)   -> encode_http_request(Msg, S);
 encode_http('PATCH', Msg, S)   -> encode_http_request(Msg, S);
+encode_http('CONNECT', Msg, S) -> encode_http_request(Msg, S);
 encode_http(_, Msg, S)         -> encode_http_response(Msg, S).
 
 %%
@@ -503,6 +514,8 @@ encode_header({_, _Url, Headers, Payload}, Acc, S)
 %    S#http{is=eof};
 % encode_check_payload(#http{htline={'DELETE', _}}=S) ->
 %    S#http{is=eof};
+encode_check_payload(#http{htline={'CONNECT', _}}=S) ->
+   S#http{is=tunnel};
 encode_check_payload(S) ->
    element(2, alt(S, [
       fun is_payload_chunked/1,
