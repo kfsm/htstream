@@ -554,7 +554,8 @@ encode_header_value({'Host', {Host, Port}}) ->
    <<"Host", ": ", (encode_value(Host))/binary, ":", (encode_value(Port))/binary>>;
 encode_header_value({'Content-Type', Val}) ->
    <<"Content-Type", ": ", (encode_mime_type(Val))/binary>>;
-encode_header_value({'Accept', Val}) ->
+encode_header_value({'Accept', Val})
+ when is_list(Val) ->
    [H | T] = [encode_mime_type(X) || X <- Val],
    V = [H] ++ [[$,, $ , X] || X <- T],
    <<"Accept", ": ", (iolist_to_binary(V))/binary>>;
