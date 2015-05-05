@@ -119,7 +119,7 @@ decode(Pckt, Acc, #stream{type=line}=State) ->
          Msg = erlang:iolist_to_binary(
             queue:to_list(queue:in(Head, State#stream.recbuf))
          ),
-         decode(binary:copy(Tail), [Msg | Acc], 
+         decode(binary:copy(Tail), [binary:copy(Msg) | Acc], 
             State#stream{
                packets = State#stream.packets + 1
               ,octets  = State#stream.octets  + erlang:iolist_size(Msg)
