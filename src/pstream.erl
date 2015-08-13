@@ -22,6 +22,7 @@
    new/1
   ,packets/1
   ,octets/1
+  ,buffer/1
   ,decode/2
   ,encode/2 
 ]).
@@ -63,6 +64,13 @@ octets(#stream{octets=X}) ->
 -spec(packets/1 :: (stream()) -> integer()).
 
 packets(#stream{packets=X}) ->
+   X.
+
+%%
+%% return buffered stream
+-spec(buffer/1 :: (#stream{}) -> binary()).
+
+buffer(#stream{recbuf=X}) ->
    X.
 
 %%

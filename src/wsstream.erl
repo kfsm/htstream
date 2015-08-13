@@ -23,6 +23,7 @@
   ,state/1
   ,packets/1
   ,octets/1
+  ,buffer/1
   ,decode/2
   ,encode/2 
 ]).
@@ -74,6 +75,13 @@ packets(#websock{packets=X}) ->
 -spec(octets/1 :: (#websock{}) -> integer()).
 
 octets(#websock{octets=X}) ->
+   X.
+
+%%
+%% return buffered stream
+-spec(buffer/1 :: (#websock{}) -> binary()).
+
+buffer(#websock{recbuf=X}) ->
    X.
 
 %%%------------------------------------------------------------------

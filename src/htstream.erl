@@ -31,6 +31,7 @@
   ,http/1
   ,packets/1
   ,octets/1
+  ,buffer/1
   ,decode/1
   ,decode/2
   ,encode/1
@@ -120,6 +121,13 @@ packets(#http{packets=X}) ->
 -spec(octets/1 :: (#http{}) -> integer()).
 
 octets(#http{octets=X}) ->
+   X.
+
+%%
+%% return buffered stream
+-spec(buffer/1 :: (#http{}) -> binary()).
+
+buffer(#http{recbuf=X}) ->
    X.
 
 %%
