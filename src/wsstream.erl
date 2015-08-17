@@ -190,13 +190,13 @@ encode(eof, Acc, #websock{}=State) ->
    encode_result([Frame | Acc], State#websock{code=8});
 
 encode(Msg, Acc, #websock{type=server}=State)
- when byte_size(Acc) > 16#ffff ->
+ when byte_size(Msg) > 16#ffff ->
    %%        FIN,      TEXT  NOMASK  LEN
    Frame = <<1:1, 0:3, 1:4,   0:1,  127:7, (byte_size(Msg)):64, Msg/binary>>, 
    encode_result([Frame | Acc], State);
 
 encode(Msg, Acc, #websock{type=server}=State)
- when byte_size(Acc) > 16#7d ->
+ when byte_size(Msg) > 16#7d ->
    %%        FIN,      TEXT  NOMASK  LEN
    Frame = <<1:1, 0:3, 1:4,   0:1,  126:7, (byte_size(Msg)):16, Msg/binary>>, 
    encode_result([Frame | Acc], State);
