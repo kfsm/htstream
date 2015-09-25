@@ -573,7 +573,10 @@ encode_header_value({Key, Val}) ->
 %%
 %%
 encode_mime_type({Type, SubType}) ->
-   <<(encode_value(Type))/binary, $/, (encode_value(SubType))/binary>>.
+   <<(encode_value(Type))/binary, $/, (encode_value(SubType))/binary>>;
+encode_mime_type(Val)
+ when is_binary(Val) ->
+   Val.
   
 
 %%

@@ -28,6 +28,6 @@ run:
 	erl -pa ./deps/*/ebin -pa ./*/ebin -pa ./ebin
 
 rebar:
-	curl -O http://cloud.github.com/downloads/basho/rebar/rebar
+	curl -L -O https://github.com/rebar/rebar/wiki/rebar ;\
 	chmod ugo+x rebar
 
