@@ -30,7 +30,7 @@
 %%
 %% internal state
 -record(stream, {
-   type    = undefined :: raw | line %% type of packet stream
+   type    = undefined :: raw | line | chunk %% type of packet stream
   ,packets = 0         :: integer()  %% number of communicated packets
   ,octets  = 0         :: integer()  %% size of communicated octets
   ,length  = 0         :: integer()  %% length of queue data
@@ -92,6 +92,16 @@ encode(Msg, #stream{type=line}=State) ->
          packets = State#stream.packets + length(Pckt)
         ,octets  = State#stream.octets  + erlang:iolist_size(Msg)
       }
+   };
+
+encode(Msg, #stream{type=chunk}=State)
+ when is_binary(Msg) ->
+   Size = list_to_binary(integer_to_list(size(Msg), 16)),
+   {<<Size/binary, $\r, $\n, Msg/binary, $\r, $\n>>,
+      State#stream{
+         packets = State#stream.packets + 1
+        ,octets  = State#stream.octets  + size(Msg)
+      }
    }.
 
 %%
@@ -112,6 +122,7 @@ decode(Pckt, Acc, #stream{type=raw}=State) ->
         ,octets  = State#stream.octets  + erlang:iolist_size(Pckt)
       }
    };
+
 decode(Pckt, Acc, #stream{type=line}=State) ->
    case binary:split(Pckt, [<<$\r, $\n>>, <<$\n>>]) of
       %% incoming packet do not have CRLF
@@ -122,12 +133,12 @@ decode(Pckt, Acc, #stream{type=line}=State) ->
               ,recbuf = queue:in(Pckt, State#stream.recbuf) 
             }
          );
-      %% ncoming packet has CRLF
+      %% incoming packet has CRLF
       [Head, Tail] ->
          Msg = erlang:iolist_to_binary(
             queue:to_list(queue:in(Head, State#stream.recbuf))
          ),
-         decode(binary:copy(Tail), [binary:copy(Msg) | Acc], 
+         decode(binary:copy(Tail), [binary:copy(Head) | Acc], 
             State#stream{
                packets = State#stream.packets + 1
               ,octets  = State#stream.octets  + erlang:iolist_size(Msg)
@@ -135,7 +146,53 @@ decode(Pckt, Acc, #stream{type=line}=State) ->
               ,recbuf  = queue:new()
             }
          )
-   end.
+   end;
+
+decode(Pckt, Acc, #stream{type=chunk}=State) ->
+   case binary:split(Pckt, [<<$\r, $\n>>]) of
+      [_] ->
+         decode(undefined, Acc,
+            State#stream{
+               length = State#stream.length + erlang:iolist_size(Pckt)
+              ,recbuf = queue:in(Pckt, State#stream.recbuf) 
+            }
+         );
+      [Head, Tail] ->
+         Msg = erlang:iolist_to_binary(
+            queue:to_list(queue:in(Head, State#stream.recbuf))
+         ),
+         Size = list_to_integer(binary_to_list(Msg), 16),
+         decode(Tail, Acc, 
+            State#stream{
+               type    = {chunk, Size}
+              ,length  = 0
+              ,recbuf  = queue:new()
+            }
+         )
+   end;
+
+decode(Pckt, Acc, #stream{type={chunk, Size}, length=Len}=State)
+ when Len + size(Pckt) < Size + 2 ->
+   decode(undefined, Acc,
+      State#stream{
+         length = State#stream.length + erlang:iolist_size(Pckt)
+        ,recbuf = queue:in(Pckt, State#stream.recbuf) 
+      }
+   );
+
+decode(Pckt, Acc, #stream{type={chunk, Size}}=State) ->
+   <<Head:Size/binary, $\r, $\n, Tail/binary>> = erlang:iolist_to_binary(
+      queue:to_list(queue:in(Pckt, State#stream.recbuf))
+   ),
+   decode(binary:copy(Tail), [binary:copy(Head) | Acc], 
+      State#stream{
+         type    = chunk
+        ,packets = State#stream.packets + 1
+        ,octets  = State#stream.octets  + erlang:iolist_size(Head)
+        ,length  = 0
+        ,recbuf  = queue:new()
+      }
+   ).
 
 
 
