@@ -97,7 +97,7 @@ encode(Msg, #stream{type=line}=State) ->
 encode(Msg, #stream{type=chunk}=State)
  when is_binary(Msg) ->
    Size = list_to_binary(integer_to_list(size(Msg), 16)),
-   {<<Size/binary, $\r, $\n, Msg/binary, $\r, $\n>>,
+   {[<<Size/binary, $\r, $\n, Msg/binary, $\r, $\n>>],
       State#stream{
          packets = State#stream.packets + 1
         ,octets  = State#stream.octets  + size(Msg)
