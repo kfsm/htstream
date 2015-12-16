@@ -540,10 +540,21 @@ encode_check_payload(S) ->
 % encode_check_chunked(false, S) ->
 %    S#http{is=eof}.
 
-encode_chunk(Chunk, Acc, S) ->
+encode_chunk(Chunk, Acc0, S) ->
+   encode_result(encode_chunk(Chunk, Acc0), S).
+   
+encode_chunk(Chunk, Acc)
+ when is_binary(Chunk) ->
    Size = integer_to_list(size(Chunk), 16),
    Chnk = iolist_to_binary([<<(list_to_binary(Size))/binary, $\r, $\n>>, Chunk, <<$\r, $\n>>]),
-   encode_result([Chnk | Acc], S).
+   [Chnk | Acc];
+   
+encode_chunk([Head | Tail], Acc) ->
+   encode_chunk(Tail, encode_chunk(Head, Acc));
+
+encode_chunk([], Acc) ->
+   Acc.
+
 
 %%
 encode_version({Major, Minor}) ->
