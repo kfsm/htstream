@@ -56,8 +56,8 @@
 
 %%
 %% create new http stream parser
--spec(new/0 :: () -> http()).
--spec(new/1 :: (any()) -> http()).
+-spec new() -> http().
+-spec new(any()) -> http().
 
 new()  ->
    new(?VERSION).
@@ -76,7 +76,7 @@ new(#http{recbuf=Buf, version=Vsn}) ->
 %%   eoh     - end of headers
 %%   eof     - end of message  
 %%   upgrade - upgrade is requested
--spec(state/1 :: (#http{}) -> idle | header | payload | eof | upgrade).
+-spec state(#http{}) -> idle | header | payload | eof | upgrade.
 
 state(#http{is=idle})    -> idle;
 state(#http{is=header})  -> header;
@@ -91,14 +91,14 @@ state(#http{is=upgrade}) -> upgrade.
 
 %%
 %% return version of http stream
--spec(version/1 :: (#http{}) -> {integer(), integer()} | undefined).
+-spec version(#http{}) -> {integer(), integer()} | undefined.
 
 version(#http{version=X}) ->
    X.
 
 %%
 %% return http request / response
--spec(http/1 :: (#http{}) -> {request | response, any()} | undefined).
+-spec http(#http{}) -> {request | response, any()} | undefined.
 
 http(#http{type=request,  htline={Method, Path}, headers=Head}) ->
    {request,  {Method, Path, Head}};
@@ -111,21 +111,21 @@ http(#http{}) ->
 
 %%
 %% return number of processed packets
--spec(packets/1 :: (#http{}) -> integer()).
+-spec packets(#http{}) -> integer().
 
 packets(#http{packets=X}) ->
    X.
 
 %%
 %% return number of processed octets
--spec(octets/1 :: (#http{}) -> integer()).
+-spec octets(#http{}) -> integer().
 
 octets(#http{octets=X}) ->
    X.
 
 %%
 %% return buffered stream
--spec(buffer/1 :: (#http{}) -> binary()).
+-spec buffer(#http{}) -> binary().
 
 buffer(#http{recbuf=X}) ->
    X.
@@ -133,7 +133,7 @@ buffer(#http{recbuf=X}) ->
 %%
 %% decodes http stream 
 %% returns parsed value and new parser state
--spec(decode/2 :: (binary(), #http{}) -> {iolist() | request() | response(), #http{}}).
+-spec decode(binary(), #http{}) -> {iolist() | request() | response(), #http{}}.
 
 decode(#http{}=S) ->
    decode(<<>>, S);
@@ -157,7 +157,7 @@ decode(Msg, S) ->
 %%
 %% encode http stream
 %% returns produces http message and new parser state
--spec(encode/2 :: (iolist() | request() | response(), #http{}) -> {binary(), #http{}}).
+-spec encode(iolist() | request() | response(), #http{}) -> {binary(), #http{}}.
 
 encode(Msg) ->
    encode(Msg, new()).
@@ -518,11 +518,13 @@ encode_header({_, _Url, Headers, Payload}, Acc, S)
 encode_check_payload(#http{htline={'CONNECT', _}}=S) ->
    S#http{is=upgrade};
 encode_check_payload(S) ->
-   element(2, alt(S, [
+   Xx = element(2, alt(S, [
       fun is_payload_chunked/1,
       fun is_payload_entity/1,
       fun is_payload_eof/1
-   ])).
+   ])),
+   io:format("=> ~p~n", [Xx]),
+   Xx.
 
 % %% check if payload needs to be transmitted
 % encode_check_payload(S) ->

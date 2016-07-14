@@ -48,7 +48,7 @@
 
 %%
 %% create new websocket stream parser
--spec(new/1 :: (atom()) -> websock()).
+-spec new(atom()) -> websock().
 
 new(Type) ->
    #websock{type=Type}.
@@ -58,28 +58,28 @@ new(Type) ->
 %% check parser state
 %%   * payload - handling payload
 %%   * eof     - end of file  
--spec(state/1 :: (websock()) -> payload | eof).
+-spec state(websock()) -> payload | eof.
 
 state(#websock{code=8})  -> eof;
 state(#websock{})        -> payload.
 
 %%
 %% return number of processed packets
--spec(packets/1 :: (websock()) -> integer()).
+-spec packets(websock()) -> integer().
 
 packets(#websock{packets=X}) ->
    X.
 
 %%
 %% return number of processed octets
--spec(octets/1 :: (#websock{}) -> integer()).
+-spec octets(#websock{}) -> integer().
 
 octets(#websock{octets=X}) ->
    X.
 
 %%
 %% return buffered stream
--spec(buffer/1 :: (#websock{}) -> binary()).
+-spec buffer(#websock{}) -> binary().
 
 buffer(#websock{recbuf=X}) ->
    X.
@@ -93,7 +93,7 @@ buffer(#websock{recbuf=X}) ->
 %%
 %% decodes websocket stream 
 %% returns parsed value and new parser state
--spec(decode/2 :: (binary(), websock()) -> {iolist() | control(), websock()}).
+-spec decode(binary(), websock()) -> {iolist() | control(), websock()}.
 
 decode(Msg, #websock{recbuf = <<>>}=State) ->
    decode(Msg, [], 
@@ -176,7 +176,7 @@ decode_mask(Pckt, Acc, State) ->
 %%
 %% encode websocket stream
 %% returns produces http message and new parser state
--spec(encode/2 :: (iolist() | control(), websock()) -> {binary(), websock()}).
+-spec encode(iolist() | control(), websock()) -> {binary(), websock()}.
 
 encode(Msg, #websock{}=State)
  when is_list(Msg) ->

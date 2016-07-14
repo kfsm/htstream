@@ -44,7 +44,7 @@
 
 %%
 %% create new stream
--spec(new/1 :: (atom()) -> stream()).
+-spec new(atom()) -> stream().
 
 new(Type) ->
    #stream{
@@ -54,28 +54,28 @@ new(Type) ->
 
 %%
 %% return number of transmitted octets
--spec(octets/1 :: (stream()) -> integer()).
+-spec octets(stream()) -> integer().
 
 octets(#stream{octets=X}) ->
    X.
 
 %%
 %% return number of transmitted packets
--spec(packets/1 :: (stream()) -> integer()).
+-spec packets(stream()) -> integer().
 
 packets(#stream{packets=X}) ->
    X.
 
 %%
 %% return buffered stream
--spec(buffer/1 :: (#stream{}) -> binary()).
+-spec buffer(#stream{}) -> binary().
 
 buffer(#stream{recbuf=X}) ->
    X.
 
 %%
 %% encode message to stream
--spec(encode/2 :: (binary(), stream()) -> {iolist(), stream()}).
+-spec encode(binary(), stream()) -> {iolist(), stream()}.
 
 encode(Msg, #stream{type=raw}=State) ->
    {[Msg], 
@@ -106,7 +106,7 @@ encode(Msg, #stream{type=chunk}=State)
 
 %%
 %% decode message from stream
--spec(decode/2 :: (binary(), stream()) -> {iolist(), stream()}).
+-spec decode(binary(), stream()) -> {iolist(), stream()}.
 
 decode(Pckt, #stream{}=State) ->
    decode(Pckt, [], State).

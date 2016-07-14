@@ -25,7 +25,7 @@
 
 %%
 %% get root content from host
--spec(get/1 :: (list()) -> {integer(), list(), iolist()}).
+-spec get(list()) -> {integer(), list(), iolist()}.
 
 get(Host)
  when is_list(Host) ->
@@ -58,3 +58,4 @@ http({Chunk, Buffer, Http}, Sock, {Code, Heads, Acc}) ->
       _    ->
          loop(gen_tcp:recv(Sock, 0), Sock, Http, Buffer, {Code, Heads, [Chunk | Acc]})
    end.
+
