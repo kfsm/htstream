@@ -518,13 +518,11 @@ encode_header({_, _Url, Headers, Payload}, Acc, S)
 encode_check_payload(#http{htline={'CONNECT', _}}=S) ->
    S#http{is=upgrade};
 encode_check_payload(S) ->
-   Xx = element(2, alt(S, [
+   element(2, alt(S, [
       fun is_payload_chunked/1,
       fun is_payload_entity/1,
       fun is_payload_eof/1
-   ])),
-   io:format("=> ~p~n", [Xx]),
-   Xx.
+   ])).
 
 % %% check if payload needs to be transmitted
 % encode_check_payload(S) ->
