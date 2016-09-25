@@ -717,12 +717,15 @@ is_payload_chunked(S) ->
       {'Transfer-Encoding', <<"identity">>} ->
          false;
       {'Transfer-Encoding', <<"chunked">>}  ->
-         case lists:keyfind('Connection', 1, S#http.headers) of
-            {'Connection', <<"close">>} ->
-               false;
-            _ ->
-               {ok, S#http{is=eoh, length=chunked}}
-         end;
+         % chunked packed filter shall be applied anyway 
+         %
+         % case lists:keyfind('Connection', 1, S#http.headers) of
+         %    {'Connection', <<"close">>} ->
+         %       false;
+         %    _ ->
+         %       {ok, S#http{is=eoh, length=chunked}}
+         % end;
+         {ok, S#http{is=eoh, length=chunked}};
       _ ->
          false
    end.
