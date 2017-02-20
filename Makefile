@@ -86,7 +86,7 @@ distclean: clean
 ##
 ## execute unit test
 unit: all
-	@./rebar3 skip_deps=true eunit
+	@./rebar3 eunit
 
 ##
 ## execute common test and terminate node

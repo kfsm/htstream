@@ -388,6 +388,8 @@ encode(Msg,  Acc, #http{is=header}=S) ->
    encode_header(Msg, Acc, S);
 
 %% decode entity payload (end-of-header / entity first byte)
+encode(<<>>, Acc, #http{is=eoh, length=undefined}=S) ->
+   encode_result(Acc, S#http{is = eof});
 encode(Msg, Acc, #http{is=eoh, length=chunked}=S) ->
    encode(Msg, Acc, S#http{is=chunk_data, length=0});
 encode(Msg, Acc, #http{is=eoh}=S) ->
@@ -749,5 +751,5 @@ is_payload_eof(S) ->
          {ok, S#http{is=eoh, length=inf}};
       _ ->
          % look like http request / response go not carry on any payload
-         {ok, S#http{is=eof}}
+         {ok, S#http{is=eoh}}
    end.
