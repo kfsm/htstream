@@ -161,8 +161,10 @@ decode(Msg, S) ->
 
 encode(Msg) ->
    encode(Msg, new()).
-encode(Msg, #http{}=S) ->
-   encode(Msg, [], S).
+encode(Msg, #http{recbuf = <<>>}=S) ->
+   encode(Msg, [], S);
+encode(Msg, #http{recbuf = IObf}=S) ->
+   encode(iolist_to_binary([IObf, Msg]), [], S#http{recbuf = <<>>}).
 
 
 
@@ -487,12 +489,12 @@ encode_header({_, Headers, Payload}, Acc, S)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
    Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
-   encode(Payload, Http, encode_check_payload(S#http{headers=Headers}));
+   encode_result(Http, encode_check_payload(S#http{headers=Headers, recbuf = Payload}));
 encode_header({_, _Url, Headers, Payload}, Acc, S)
  when is_list(Headers) ->
    Head = [<<(encode_header_value(X))/binary, "\r\n">> || X <- Headers],
    Http = [iolist_to_binary([Head, $\r, $\n]) | Acc],
-   encode(Payload, Http, encode_check_payload(S#http{headers=Headers})).
+   encode_result(Http, encode_check_payload(S#http{headers=Headers, recbuf = Payload})).
 
 %%
 %% encode check message payload
