@@ -727,14 +727,6 @@ is_payload_chunked(S) ->
       {'Transfer-Encoding', <<"identity">>} ->
          false;
       {'Transfer-Encoding', <<"chunked">>}  ->
-         % chunked packed filter shall be applied anyway 
-         %
-         % case lists:keyfind('Connection', 1, S#http.headers) of
-         %    {'Connection', <<"close">>} ->
-         %       false;
-         %    _ ->
-         %       {ok, S#http{is=eoh, length=chunked}}
-         % end;
          {ok, S#http{is=eoh, length=chunked}};
       _ ->
          false
@@ -754,10 +746,11 @@ is_payload_entity(S) ->
    end. 
 
 is_payload_eof(S) ->
-   case lists:keyfind('Connection', 1, S#http.headers) of
-      {'Connection', <<"close">>} ->
-         {ok, S#http{is=eoh, length=inf}};
-      _ ->
-         % look like http request / response go not carry on any payload
-         {ok, S#http{is=eoh}}
-   end.
+   {ok, S#http{is=eoh}}.
+   % case lists:keyfind('Connection', 1, S#http.headers) of
+   %    {'Connection', <<"close">>} ->
+   %       {ok, S#http{is=eoh, length=inf}};
+   %    _ ->
+   %       % look like http request / response go not carry on any payload
+   %       {ok, S#http{is=eoh}}
+   % end.
