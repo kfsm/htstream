@@ -140,7 +140,7 @@ decode(#http{}=S) ->
 decode(Msg) ->
    decode(Msg, new()).
 
-decode(Msg, #http{recbuf = <<>>}=S) ->
+decode(Msg, #http{recbuf = undefined}=S) ->
    decode(Msg, [], 
       S#http{
          packets = S#http.packets + 1
@@ -149,7 +149,7 @@ decode(Msg, #http{recbuf = <<>>}=S) ->
 decode(Msg, S) ->
    decode(iolist_to_binary([S#http.recbuf, Msg]), [], 
       S#http{
-         recbuf = <<>>
+         recbuf  = undefined
         ,packets = S#http.packets + 1
         ,octets  = S#http.octets  + erlang:iolist_size(Msg)
       }).
@@ -161,10 +161,10 @@ decode(Msg, S) ->
 
 encode(Msg) ->
    encode(Msg, new()).
-encode(Msg, #http{recbuf = <<>>}=S) ->
+encode(Msg, #http{recbuf = undefined}=S) ->
    encode(Msg, [], S);
 encode(Msg, #http{recbuf = IObf}=S) ->
-   encode(iolist_to_binary([IObf, Msg]), [], S#http{recbuf = <<>>}).
+   encode(iolist_to_binary([IObf, Msg]), [], S#http{recbuf = undefined}).
 
 
 
