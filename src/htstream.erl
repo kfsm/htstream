@@ -65,6 +65,9 @@ new()  ->
 new({_, _}=Vsn) ->
    #http{is=idle, version=Vsn};
 
+%% @deprecated
+%%   method is designed to switch stream to new state during i/o
+%%   new version of ht stream should switch to idle automatically
 new(#http{recbuf=Buf, version=Vsn}) ->
    #http{is=idle, version=Vsn, recbuf=Buf}.
 
@@ -135,24 +138,28 @@ buffer(#http{recbuf=X}) ->
 %% returns parsed value and new parser state
 -spec decode(binary(), #http{}) -> {iolist() | request() | response(), #http{}}.
 
-decode(#http{}=S) ->
-   decode(<<>>, S);
+decode(#http{} = Http) -> 
+   decode(<<>>, Http);
 decode(Msg) ->
    decode(Msg, new()).
 
-decode(Msg, #http{recbuf = undefined}=S) ->
-   decode(Msg, [], 
-      S#http{
-         packets = S#http.packets + 1
-        ,octets  = S#http.octets  + erlang:iolist_size(Msg)
-      });
-decode(Msg, S) ->
-   decode(iolist_to_binary([S#http.recbuf, Msg]), [], 
-      S#http{
-         recbuf  = undefined
-        ,packets = S#http.packets + 1
-        ,octets  = S#http.octets  + erlang:iolist_size(Msg)
-      }).
+decode(Msg, #http{is = eof, version = Vsn, recbuf = IoBuf}) ->
+   decode(Msg, #http{is = idle, version = Vsn, recbuf = IoBuf});
+
+decode(Msg, #http{recbuf = undefined} = Http) ->
+   Size = erlang:iolist_size(Msg),
+   decode(Msg, [], stats(Size, Http));
+
+decode(Msg, #http{recbuf = RecBuf} = Http) ->
+   Size = erlang:iolist_size(Msg),
+   Pack = erlang:iolist_to_binary([RecBuf, Msg]),
+   decode(Pack, [], stats(Size, Http#http{recbuf = undefined})).
+
+stats(Size, #http{packets = Pack, octets = Byte} = Http) ->
+   Http#http{
+      packets = Pack + 1
+     ,octets  = Byte + Size
+   }.
 
 %%
 %% encode http stream
@@ -161,11 +168,16 @@ decode(Msg, S) ->
 
 encode(Msg) ->
    encode(Msg, new()).
-encode(Msg, #http{recbuf = undefined}=S) ->
-   encode(Msg, [], S);
-encode(Msg, #http{recbuf = IObf}=S) ->
-   encode(iolist_to_binary([IObf, Msg]), [], S#http{recbuf = undefined}).
 
+encode(Msg, #http{is = eof, version = Vsn, recbuf = IoBuf}) ->
+   encode(Msg, #http{is = idle, version = Vsn, recbuf = IoBuf});
+
+encode(Msg, #http{recbuf = undefined} = Http) ->
+   encode(Msg, [], Http);
+
+encode(Msg, #http{recbuf = IoBuf} = Http) ->
+   Pack = erlang:iolist_to_binary([IoBuf, Msg]),
+   encode(Pack, [], Http#http{recbuf = undefined}).
 
 
 %%%------------------------------------------------------------------
