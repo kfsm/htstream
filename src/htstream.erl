@@ -758,7 +758,7 @@ is_payload_entity(S) ->
    end. 
 
 is_payload_eof(S) ->
-   {ok, S#http{is=eoh}}.
+   {ok, S#http{is=eoh, length=inf}}.
    % case lists:keyfind('Connection', 1, S#http.headers) of
    %    {'Connection', <<"close">>} ->
    %       {ok, S#http{is=eoh, length=inf}};
