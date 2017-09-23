@@ -758,11 +758,11 @@ is_payload_entity(S) ->
    end. 
 
 is_payload_eof(S) ->
-   {ok, S#http{is=eoh, length=inf}}.
-   % case lists:keyfind('Connection', 1, S#http.headers) of
-   %    {'Connection', <<"close">>} ->
-   %       {ok, S#http{is=eoh, length=inf}};
-   %    _ ->
-   %       % look like http request / response go not carry on any payload
-   %       {ok, S#http{is=eoh}}
-   % end.
+   %% Note: this routine makes a final statement if the request carries payload or not
+   case lists:keyfind('Connection', 1, S#http.headers) of
+      {'Connection', <<"close">>} ->
+         {ok, S#http{is=eoh, length=inf}};
+      _ ->
+         % look like http request / response go not carry on any payload
+         {ok, S#http{is=eoh}}
+   end.
