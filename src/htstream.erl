@@ -473,11 +473,11 @@ encode_http({Code, _, _} = Msg, State)
 %%
 encode_http_request({Mthd, Url, _}=Msg, S) ->
    Uri  = encode_url(Url),
-   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , Uri, $ , encode_version(S#http.version), $\r, $\n]),
+   Http = iolist_to_binary([Mthd, $ , Uri, $ , encode_version(S#http.version), $\r, $\n]),
    encode(Msg, [Http], S#http{is=header, type=request, htline={Mthd, Uri}});
 encode_http_request({Mthd, Url, _, _}=Msg, S) ->
    Uri  = encode_url(Url),
-   Http = iolist_to_binary([atom_to_binary(Mthd, utf8), $ , Uri, $ , encode_version(S#http.version), $\r, $\n]),
+   Http = iolist_to_binary([Mthd, $ , Uri, $ , encode_version(S#http.version), $\r, $\n]),
    encode(Msg, [Http], S#http{is=header, type=request, htline={Mthd, Uri}}).
 
 encode_http_response({Status, _}=Msg, S) ->
