@@ -45,7 +45,7 @@
 
 %%
 %% public types 
--type method()  :: binary().                         % request method
+-type method()  :: atom().                         % request method
 -type url()     :: binary().                         % request url 
 -type header()  :: {binary(), binary() | integer()}. % http header
 -type headers() :: [header()].
@@ -148,20 +148,26 @@ decode(Msg) ->
 decode(Msg, #http{is = eof, version = Vsn, recbuf = IoBuf}) ->
    decode(Msg, #http{is = idle, version = Vsn, recbuf = IoBuf});
 
-decode(Msg, #http{recbuf = undefined} = Http) ->
-   Size = erlang:iolist_size(Msg),
-   decode(Msg, [], stats(Size, Http));
+decode(Stream, #http{recbuf = undefined} = Http) ->
+   stream(Http, Stream, queue:new(), htstream_decode);
 
-decode(Msg, #http{recbuf = RecBuf} = Http) ->
-   Size = erlang:iolist_size(Msg),
-   Pack = erlang:iolist_to_binary([RecBuf, Msg]),
-   decode(Pack, [], stats(Size, Http#http{recbuf = undefined})).
+decode(Stream, #http{recbuf = RecBuf} = Http) ->
+   decode(erlang:iolist_to_binary([RecBuf, Stream]), Http#http{recbuf = undefined}).
 
-stats(Size, #http{packets = Pack, octets = Byte} = Http) ->
-   Http#http{
-      packets = Pack + 1
-     ,octets  = Byte + Size
-   }.
+
+   % Size = erlang:iolist_size(Msg),
+   % decode(Msg, [], stats(Size, Http));
+
+% decode(Msg, #http{recbuf = RecBuf} = Http) ->
+   % Size = erlang:iolist_size(Msg),
+   % Pack = erlang:iolist_to_binary([RecBuf, Msg]),
+%    decode(Pack, [], stats(Size, Http#http{recbuf = undefined})).
+
+% stats(Size, #http{packets = Pack, octets = Byte} = Http) ->
+%    Http#http{
+%       packets = Pack + 1
+%      ,octets  = Byte + Size
+%    }.
 
 %%
 %% encode http stream
@@ -174,12 +180,177 @@ encode(Msg) ->
 encode(Msg, #http{is = eof, version = Vsn, recbuf = IoBuf}) ->
    encode(Msg, #http{is = idle, version = Vsn, recbuf = IoBuf});
 
-encode(Msg, #http{recbuf = undefined} = Http) ->
-   encode(Msg, [], Http);
+encode(Stream, #http{recbuf = undefined} = Http) ->
+   stream(Http, Stream, queue:new(), htstream_encode);
 
-encode(Msg, #http{recbuf = IoBuf} = Http) ->
-   Pack = erlang:iolist_to_binary([IoBuf, Msg]),
-   encode(Pack, [], Http#http{recbuf = undefined}).
+encode(Stream, #http{recbuf = RecBuf} = Http) ->
+   encode(erlang:iolist_to_binary([RecBuf, Stream]), Http#http{recbuf = undefined}).
+
+
+
+%    encode(Msg, [], Http);
+
+% encode(Msg, #http{recbuf = IoBuf} = Http) ->
+%    Pack = erlang:iolist_to_binary([IoBuf, Msg]),
+%    encode(Pack, [], Http#http{recbuf = undefined}).
+
+%%%------------------------------------------------------------------
+%%%
+%%% stream parser of http protocol
+%%%
+%%%------------------------------------------------------------------
+
+%%
+%% htline
+stream(#http{is = idle} = Http, Stream, Queue, Codec) ->
+   continue(Codec:htline(Stream, Http), Queue, Codec);
+
+%%
+%% headers
+stream(#http{is = header} = Http, Stream, Queue, Codec) ->
+   continue(Codec:header(Stream, Http), Queue, Codec);
+
+stream(#http{is = eoh, length = undefined} = Http, Stream, Queue, Codec) ->
+   continue(
+      {undefined, undefined, check_payload(Http#http{recbuf = Stream})},
+      Queue,
+      Codec
+   );
+
+%%
+%% type and length of entity payload (end-of-header / entity first byte)
+stream(#http{is = eoh, length = none} = Http, Stream, Queue, Codec) ->
+   continue(
+      {undefined, undefined, Http#http{is = eof}},
+      Queue,
+      Codec
+   );
+
+stream(#http{is = eoh, length = chunked} = Http, Stream, Queue, Codec) ->
+   continue(
+      {undefined, Stream, Http#http{is = chunk_head, length = 0}},
+      Queue,
+      Codec
+   );
+
+stream(#http{is = eoh} = Http, Stream, Queue, Codec) ->
+   continue(
+      {undefined, Stream, Http#http{is = entity}},
+      Queue,
+      Codec
+   );
+
+%%
+%% entity payload
+stream(#http{is = entity, length = inf} = Http, Stream, Queue, Codec) ->
+   % message length is determined by duration of the connection
+   continue(
+      {Stream, undefined, Http},
+      Queue,
+      Codec
+   );
+
+stream(#http{is = entity, length = Len} = Http, Stream, Queue, Codec)
+ when is_integer(Len), size(Stream) < Len ->
+   continue(
+      {Stream, undefined, Http#http{length = Len - size(Stream)}},
+      Queue,
+      Codec
+   );
+
+stream(#http{is = entity, length = Len} = Http, Stream, Queue, Codec)
+ when is_integer(Len) ->
+   <<Head:Len/binary, Tail/binary>> = Stream,
+   continue(
+      {Head, undefined, Http#http{is = eof, length = 0, recbuf = Tail}},
+      Queue,
+      Codec
+   );
+
+stream(#http{is = chunk_head, length = 0} = Http, Stream, Queue, Codec) ->
+   continue(Codec:chunk(Stream, Http), Queue, Codec);
+
+stream(#http{is = chunk_data, length = Len} = Http, Stream, Queue, Codec)
+ when size(Stream) < Len ->
+   continue(
+      {Stream, undefined, Http#http{length = Len - size(Stream)}},
+      Queue,
+      Codec
+   );
+
+stream(#http{is = chunk_data, length = Len} = Http, Stream, Queue, Codec) ->
+   <<Head:Len/binary, Tail/binary>> = Stream,
+   continue(
+      {Head, Tail, Http#http{is = chunk_tail, length = 0}},
+      Queue,
+      Codec
+   );
+
+stream(#http{is = chunk_tail} = Http, Stream, Queue, Codec) ->
+   continue(Codec:chunk(Stream, Http), Queue, Codec).
+
+
+
+
+
+%%
+continue({undefined, undefined, Http}, Queue, _) ->
+   {queue:to_list(Queue), Http};
+
+continue({Pckt, undefined, Http}, Queue, _) ->
+   {queue:to_list(queue:in(Pckt, Queue)), Http};
+
+continue({undefined, Stream, Http}, Queue, Codec) ->
+   stream(Http, Stream, Queue, Codec);
+
+continue({Pckt, Stream, Http}, Queue, Codec) ->
+   stream(Http, Stream, queue:in(Pckt, Queue), Codec).
+
+
+%%
+%% check message payload
+%% see http://www.w3.org/Protocols/rfc2616/rfc2616-sec4.html#sec4
+%%
+%% 1. Any response message which "MUST NOT" include a message-body 
+%%    (such as the 1xx, 204, and 304 responses and any response to 
+%%    a HEAD request) is always terminated by the first empty line 
+%%    after the header fields... (Not implemented)
+%%
+%% 2. If a Transfer-Encoding header field (section 14.41) is present 
+%%    and has any value other than "identity", then the transfer-length 
+%%    is defined by use of the "chunked" transfer-coding (section 3.6), 
+%%    unless the message is terminated by closing the connection.
+%%
+%% 3. If a Content-Length header field (section 14.13) is present, 
+%%    its decimal value in OCTETs represents both the entity-length 
+%%    and the transfer-length. The Content-Length header field MUST NOT 
+%%    be sent if these two lengths are different
+%%
+%% 4. If the message uses the media type "multipart/byteranges"... 
+%%    (Not implemented)
+%%
+%% 5. By the server closing the connection. 
+%%
+% decode_check_payload(#http{htline={?HTTP_GET,  _}}=State) ->
+%    case lists:keyfind('Connection', 1, State#http.headers) of
+%       {_, <<"Upgrade">>} ->
+%          State#http{is=upgrade};
+%       _ ->
+%          State#http{is=eof}
+%    end;
+% decode_check_payload(#http{htline={?HTTP_HEAD, _}}=State) ->
+%    State#http{is=eof};
+% decode_check_payload(#http{htline={?HTTP_DELETE, _}}=State) ->
+%    State#http{is=eof};
+check_payload(#http{htline={'CONNECT', _}}=State) ->
+   State#http{is=upgrade};
+check_payload(State) ->
+   element(2, alt(State, [
+      fun is_payload_chunked/1,
+      fun is_payload_entity/1,
+      fun is_payload_eof/1
+   ])).
+
 
 
 %%%------------------------------------------------------------------
@@ -197,10 +368,13 @@ decode(Pckt, _Acc, #http{is=header}=S) ->
    decode_header(erlang:decode_packet(httph_bin, Pckt, []), Pckt, S);
 
 %% decode entity payload (end-of-header / entity first byte)
-decode(Pckt, Acc, #http{is=eoh, length=chunked}=S) ->
-   decode(Pckt, Acc, S#http{is=chunk_head, length=0});
-decode(Pckt, Acc, #http{is=eoh}=S) ->
-   decode(Pckt, Acc, S#http{is=entity});
+decode(<<>>, Acc, #http{is=eoh, length=undefined}=State) ->
+   {lists:reverse(Acc), State#http{is = eof}};
+
+decode(Pckt, Acc, #http{is=eoh, length=chunked}=State) ->
+   decode(Pckt, Acc, State#http{is=chunk_head, length=0});
+decode(Pckt, Acc, #http{is=eoh}=State) ->
+   decode(Pckt, Acc, State#http{is=entity});
 
 %% decode entity payload
 decode(Pckt, Acc, #http{is=entity, length=Len}=S)
@@ -357,17 +531,17 @@ decode_chunk_tail([_, Pckt], _Pckt, Acc, S) ->
 %%    (Not implemented)
 %%
 %% 5. By the server closing the connection. 
-decode_check_payload(#http{htline={?HTTP_GET,  _}}=State) ->
-   case lists:keyfind('Connection', 1, State#http.headers) of
-      {_, <<"Upgrade">>} ->
-         State#http{is=upgrade};
-      _ ->
-         State#http{is=eof}
-   end;
-decode_check_payload(#http{htline={?HTTP_HEAD, _}}=State) ->
-   State#http{is=eof};
-decode_check_payload(#http{htline={?HTTP_DELETE, _}}=State) ->
-   State#http{is=eof};
+% decode_check_payload(#http{htline={?HTTP_GET,  _}}=State) ->
+%    case lists:keyfind('Connection', 1, State#http.headers) of
+%       {_, <<"Upgrade">>} ->
+%          State#http{is=upgrade};
+%       _ ->
+%          State#http{is=eof}
+%    end;
+% decode_check_payload(#http{htline={?HTTP_HEAD, _}}=State) ->
+%    State#http{is=eof};
+% decode_check_payload(#http{htline={?HTTP_DELETE, _}}=State) ->
+%    State#http{is=eof};
 decode_check_payload(#http{htline={?HTTP_CONNECT, _}}=State) ->
    State#http{is=upgrade};
 decode_check_payload(S) ->
@@ -453,11 +627,11 @@ encode(_Pckt, Acc, #http{is=eof}=State) ->
    encode_result(Acc, State).
 
 %% 
-encode_result(Acc, #http{}=S) ->
+encode_result(Acc, #http{}=State) ->
    {lists:reverse(Acc), 
-      S#http{
-         packets = S#http.packets + 1
-        ,octets  = S#http.octets  + erlang:iolist_size(Acc)
+      State#http{
+         packets = State#http.packets + 1
+        ,octets  = State#http.octets  + erlang:iolist_size(Acc)
       }
    }.
 
@@ -743,22 +917,22 @@ alt(Y, [], _) ->
    Y.
 
 is_payload_chunked(S) ->
-   case lists:keyfind('Transfer-Encoding', 1, S#http.headers) of
-      {'Transfer-Encoding', <<"identity">>} ->
+   case lists:keyfind(?HTTP_TRANSFER_ENCODING, 1, S#http.headers) of
+      {?HTTP_TRANSFER_ENCODING, <<"identity">>} ->
          false;
-      {'Transfer-Encoding', <<"chunked">>}  ->
+      {?HTTP_TRANSFER_ENCODING, <<"chunked">>}  ->
          {ok, S#http{is=eoh, length=chunked}};
       _ ->
          false
    end.
 
 is_payload_entity(S) ->
-   case lists:keyfind('Transfer-Length', 1, S#http.headers) of
-      {'Transfer-Length', Len} ->
+   case lists:keyfind(?HTTP_TRANSFER_LENGTH, 1, S#http.headers) of
+      {?HTTP_TRANSFER_LENGTH, Len} ->
          {ok, S#http{is=eoh, length=Len}};
       _ ->
-         case lists:keyfind('Content-Length', 1, S#http.headers) of
-            {'Content-Length', Len} ->
+         case lists:keyfind(?HTTP_CONTENT_LENGTH, 1, S#http.headers) of
+            {?HTTP_CONTENT_LENGTH, Len} ->
                {ok, S#http{is=eoh, length=Len}};
             _ ->
                false
@@ -767,10 +941,10 @@ is_payload_entity(S) ->
 
 is_payload_eof(S) ->
    %% Note: this routine makes a final statement if the request carries payload or not
-   case lists:keyfind('Connection', 1, S#http.headers) of
-      {'Connection', <<"close">>} ->
+   case lists:keyfind(?HTTP_CONNECTION, 1, S#http.headers) of
+      {?HTTP_CONNECTION, <<"close">>} ->
          {ok, S#http{is=eoh, length=inf}};
       _ ->
          % look like http request / response go not carry on any payload
-         {ok, S#http{is=eoh}}
+         {ok, S#http{is=eoh, length=none}}
    end.
