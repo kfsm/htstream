@@ -22,6 +22,7 @@
 %%     * limit size recbuf
 -module(htstream).
 -include("htstream.hrl").
+-include("include/htstream.hrl").
 
 -export([
    new/0
@@ -356,19 +357,19 @@ decode_chunk_tail([_, Pckt], _Pckt, Acc, S) ->
 %%    (Not implemented)
 %%
 %% 5. By the server closing the connection. 
-decode_check_payload(#http{htline={'GET',  _}}=State) ->
+decode_check_payload(#http{htline={?HTTP_GET,  _}}=State) ->
    case lists:keyfind('Connection', 1, State#http.headers) of
       {_, <<"Upgrade">>} ->
          State#http{is=upgrade};
       _ ->
          State#http{is=eof}
    end;
-decode_check_payload(#http{htline={'HEAD', _}}=S) ->
-   S#http{is=eof};
-decode_check_payload(#http{htline={'DELETE', _}}=S) ->
-   S#http{is=eof};
-decode_check_payload(#http{htline={'CONNECT', _}}=S) ->
-   S#http{is=upgrade};
+decode_check_payload(#http{htline={?HTTP_HEAD, _}}=State) ->
+   State#http{is=eof};
+decode_check_payload(#http{htline={?HTTP_DELETE, _}}=State) ->
+   State#http{is=eof};
+decode_check_payload(#http{htline={?HTTP_CONNECT, _}}=State) ->
+   State#http{is=upgrade};
 decode_check_payload(S) ->
    element(2, alt(S, [
       fun is_payload_chunked/1,
@@ -544,7 +545,7 @@ encode_header({_, _Url, Headers, Payload}, Acc, S)
 %    S#http{is=eof};
 % encode_check_payload(#http{htline={'DELETE', _}}=S) ->
 %    S#http{is=eof};
-encode_check_payload(#http{htline={'CONNECT', _}}=S) ->
+encode_check_payload(#http{htline={?HTTP_CONNECT, _}}=S) ->
    S#http{is=upgrade};
 encode_check_payload(S) ->
    element(2, alt(S, [
