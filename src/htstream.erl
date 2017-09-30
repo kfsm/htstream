@@ -44,13 +44,14 @@
 
 %%
 %% public types 
--type(method()  :: atom()).                        % request method
--type(url()     :: binary()).                      % request url 
--type(header()  :: {atom() | binary(), binary() | integer}).  % http header
--type(request() :: {method(), url(), [header()]}). % http request
--type(response():: {integer(), binary(), [header()]}). 
--type(payload() :: binary()).                      % http payload
--type(http()    :: #http{}).                       % http parser state
+-type method()  :: binary().                         % request method
+-type url()     :: binary().                         % request url 
+-type header()  :: {binary(), binary() | integer()}. % http header
+-type headers() :: [header()].
+-type request() :: {method(), url(), headers()}.     % http request
+-type response():: {integer(), binary(), headers()}. % 
+-type payload() :: binary().                         % http payload
+-type http()    :: #http{}.                          % http parser state
 
 -define(VERSION,   {1, 1}).
 
@@ -394,8 +395,8 @@ decode_mime_type(Val) ->
 %%
 encode(eof, _Acc, #http{is=idle}=S) ->
    {[], S};
-encode(Msg, _Acc, #http{is=idle}=S)   ->
-   encode_http(erlang:element(1, Msg), Msg, S);
+encode(Msg, _Acc, #http{is=idle}=State)   ->
+   encode_http(Msg, State);
 
 %% encode http headers
 encode(Msg,  Acc, #http{is=header}=S) ->
@@ -456,16 +457,18 @@ encode_result(Acc, #http{}=S) ->
    }.
 
 %%
-encode_http('OPTIONS', Msg, S) -> encode_http_request(Msg, S);
-encode_http('GET', Msg, S)     -> encode_http_request(Msg, S);
-encode_http('HEAD', Msg, S)    -> encode_http_request(Msg, S);
-encode_http('POST', Msg, S)    -> encode_http_request(Msg, S);
-encode_http('PUT', Msg, S)     -> encode_http_request(Msg, S);
-encode_http('DELETE', Msg, S)  -> encode_http_request(Msg, S);
-encode_http('TRACE', Msg, S)   -> encode_http_request(Msg, S);
-encode_http('PATCH', Msg, S)   -> encode_http_request(Msg, S);
-encode_http('CONNECT', Msg, S) -> encode_http_request(Msg, S);
-encode_http(_, Msg, S)         -> encode_http_response(Msg, S).
+%% http request / response is triple
+%%   -type request() :: {method(), url(), headers()}.     
+%%   -type response():: {integer(), binary(), headers()}.
+%% 
+encode_http({Mthd, _, _} = Msg, State)
+ when is_binary(Mthd)  -> 
+   encode_http_request(Msg, State);
+
+encode_http({Code, _, _} = Msg, State)
+ when is_integer(Code) -> 
+   encode_http_response(Msg, State).
+
 
 %%
 encode_http_request({Mthd, Url, _}=Msg, S) ->
