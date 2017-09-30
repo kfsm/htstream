@@ -261,10 +261,14 @@ decode_http({ok, {http_response, Vsn, Status, Msg}, Rest}, _Pckt, S) ->
    ).
 
 %% attempt to decode method
-decode_method(<<"CONNECT">>) ->
-   'CONNECT';
-decode_method(Mthd) ->
+decode_method(Mthd)
+ when is_atom(Mthd) ->
+   atom_to_binary(Mthd, utf8);
+
+decode_method(Mthd)
+ when is_binary(Mthd) ->
    Mthd.
+
 
 %% attempt to decode url
 decode_url({abs_path, Url}) ->  
