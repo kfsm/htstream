@@ -60,6 +60,9 @@ codec_header({Key, Val}) ->
 
 %%
 %%
+chunk(eof, Http) ->
+   chunk(<<>>, Http#http{is = eof});
+
 chunk(Stream, Http)
  when is_binary(Stream) ->
    Size = htstream_codec:s(integer_to_list(size(Stream), 16)),

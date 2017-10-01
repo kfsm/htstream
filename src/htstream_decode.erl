@@ -133,7 +133,7 @@ codec_chunk_head([Head, Stream], _, Http) ->
       0   ->
          % TODO: decoder assumes that 0\r\n\r\n is arrived in single packet
          <<_:2/binary, Tail/binary>> = Stream,
-         {undefined, undefined,
+         {eof, undefined,
             Http#http{is = eof, recbuf = Tail}
          };
       Val ->
