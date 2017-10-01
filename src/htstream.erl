@@ -213,6 +213,7 @@ join(X, Y) ->
 
 %%
 %% htline
+% stream(#http{is = idle} = Http, eof, Queue, Codec) ->
 stream(#http{is = idle} = Http, Stream, Queue, Codec) ->
    continue(Codec:htline(Stream, Http), Queue, Codec);
 

@@ -102,9 +102,9 @@ codec_header({ok, http_eoh, Stream}, _, #http{htline = {Mthd, Url}, headers = He
 
 %% parse header value
 codec_header_value('Content-Length', Val) ->
-   {'Content-Length', htstream_codec:i(Val)};
+   {?HTTP_CONTENT_LENGTH, htstream_codec:i(Val)};
 codec_header_value('Transfer-Length', Val) ->
-   {'Transfer-Length', htstream_decode:i(Val)};
+   {?HTTP_TRANSFER_LENGTH, htstream_decode:i(Val)};
 % codec_header_value('Content-Type', Val) ->
 %    {'Content-Type', decode_mime_type(Val)};
 % decode_header_value('Accept', Val) ->
