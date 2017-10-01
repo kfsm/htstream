@@ -45,7 +45,7 @@
 
 %%
 %% public types 
--type method()  :: atom().                         % request method
+-type method()  :: atom().                           % request method
 -type url()     :: binary().                         % request url 
 -type header()  :: {binary(), binary() | integer()}. % http header
 -type headers() :: [header()].
@@ -55,6 +55,7 @@
 -type http()    :: #http{}.                          % http parser state
 
 -define(VERSION,   {1, 1}).
+
 
 %%
 %% create new http stream parser
@@ -149,7 +150,7 @@ decode(Msg, #http{is = eof, version = Vsn, recbuf = IoBuf}) ->
    decode(Msg, #http{is = idle, version = Vsn, recbuf = IoBuf});
 
 decode(Stream, #http{recbuf = RecBuf} = Http) ->
-   stream(Http#http{recbuf = undefined}, join(RecBuf, Stream), queue:new(), htstream_decode);
+   stream(Http#http{recbuf = undefined}, join(RecBuf, Stream), [], htstream_decode);
 
 decode(Stream, #http{recbuf = RecBuf} = Http) ->
    decode(erlang:iolist_to_binary([RecBuf, Stream]), Http#http{recbuf = undefined}).
@@ -181,7 +182,7 @@ encode(Stream, #http{is = eof, version = Vsn, recbuf = IoBuf}) ->
    encode(Stream, #http{is = idle, version = Vsn, recbuf = IoBuf});
 
 encode(Stream, #http{recbuf = RecBuf} = Http) ->
-   stream(Http#http{recbuf = undefined}, join(RecBuf, Stream), queue:new(), htstream_encode).
+   stream(Http#http{recbuf = undefined}, join(RecBuf, Stream), [], htstream_encode).
 
 %    stream(Http, Stream, queue:new(), htstream_encode);
 
@@ -196,7 +197,7 @@ join(<<>>,      Y) ->
 join(X, undefined) ->
    X;
 join(X, Y) ->
-   erlang:iolist_to_binary([X, Y]).
+   [X, Y].
 
 
 %    encode(Msg, [], Http);
@@ -213,7 +214,13 @@ join(X, Y) ->
 
 %%
 %% htline
-% stream(#http{is = idle} = Http, eof, Queue, Codec) ->
+stream(#http{is = idle} = Http, eof, Queue, Codec) ->
+   continue(
+      {undefined, undefined, Http},
+      Queue,
+      Codec
+   );
+
 stream(#http{is = idle} = Http, Stream, Queue, Codec) ->
    continue(Codec:htline(Stream, Http), Queue, Codec);
 
@@ -310,16 +317,16 @@ stream(#http{is = chunk_tail} = Http, Stream, Queue, Codec) ->
 
 %%
 continue({undefined, undefined, Http}, Queue, _) ->
-   {queue:to_list(Queue), Http};
+   {lists:reverse(Queue), Http};
 
 continue({Pckt, undefined, Http}, Queue, _) ->
-   {queue:to_list(queue:in(Pckt, Queue)), Http};
+   {lists:reverse([Pckt | Queue]), Http};
 
 continue({undefined, Stream, Http}, Queue, Codec) ->
    stream(Http, Stream, Queue, Codec);
 
 continue({Pckt, Stream, Http}, Queue, Codec) ->
-   stream(Http, Stream, queue:in(Pckt, Queue), Codec).
+   stream(Http, Stream, [Pckt | Queue], Codec).
 
 
 %%
