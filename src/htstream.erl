@@ -951,11 +951,11 @@ is_payload_chunked(S) ->
 is_payload_entity(S) ->
    case lists:keyfind(?HTTP_TRANSFER_LENGTH, 1, S#http.headers) of
       {?HTTP_TRANSFER_LENGTH, Len} ->
-         {ok, S#http{is=eoh, length=Len}};
+         {ok, S#http{is = eoh, length = htstream_codec:i(Len)}};
       _ ->
          case lists:keyfind(?HTTP_CONTENT_LENGTH, 1, S#http.headers) of
             {?HTTP_CONTENT_LENGTH, Len} ->
-               {ok, S#http{is=eoh, length=Len}};
+               {ok, S#http{is = eoh, length = htstream_codec:i(Len)}};
             _ ->
                false
          end
@@ -965,8 +965,8 @@ is_payload_eof(S) ->
    %% Note: this routine makes a final statement if the request carries payload or not
    case lists:keyfind(?HTTP_CONNECTION, 1, S#http.headers) of
       {?HTTP_CONNECTION, <<"close">>} ->
-         {ok, S#http{is=eoh, length=inf}};
+         {ok, S#http{is = eoh, length = inf}};
       _ ->
          % look like http request / response go not carry on any payload
-         {ok, S#http{is=eoh, length=none}}
+         {ok, S#http{is = eoh, length = none}}
    end.
