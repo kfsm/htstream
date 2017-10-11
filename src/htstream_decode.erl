@@ -3,7 +3,6 @@
 %%   decode binary stream to http messages
 -module(htstream_decode).
 -include("htstream.hrl").
--include("include/htstream.hrl").
 
 -export([
    htline/2,
@@ -95,10 +94,6 @@ codec_header({ok, http_eoh, Stream}, _, #http{htline = {Mthd, Url}, headers = He
       Http#http{is = eoh, headers = lists:reverse(Head)}
    }.
 
-
-   % {Mthd, Url} = State#http.htline,
-   % Head        = lists:reverse(State#http.headers),
-   % {{Mthd, Url, Head}, decode_check_payload(State#http{headers=Head, recbuf=Rest})}.
 
 %% parse header value
 % codec_header_value('Content-Length', Val) ->

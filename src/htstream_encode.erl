@@ -3,7 +3,6 @@
 %%   encode binary stream to http messages
 -module(htstream_encode).
 -include("htstream.hrl").
--include("include/htstream.hrl").
 
 -export([
    htline/2,

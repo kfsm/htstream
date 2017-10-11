@@ -22,7 +22,6 @@
 %%     * limit size recbuf
 -module(htstream).
 -include("htstream.hrl").
--include("include/htstream.hrl").
 
 -export([
    new/0
@@ -37,11 +36,6 @@
   ,decode/2
   ,encode/1
   ,encode/2 
-]).
--export([
-   http_accept/0,
-   http_connection/0,
-   http_content_type/0
 ]).
 
 -export_type([
@@ -148,32 +142,31 @@ buffer(#http{recbuf=X}) ->
 
 decode(#http{} = Http) -> 
    decode(<<>>, Http);
-decode(Msg) ->
-   decode(Msg, new()).
+decode(Stream) ->
+   decode(Stream, new()).
 
-decode(Msg, #http{is = eof, version = Vsn, recbuf = IoBuf}) ->
-   decode(Msg, #http{is = idle, version = Vsn, recbuf = IoBuf});
+decode(Stream, #http{is = eof, version = Vsn, recbuf = IoBuf}) ->
+   decode(Stream, #http{is = idle, version = Vsn, recbuf = IoBuf});
 
 decode(Stream, #http{recbuf = RecBuf} = Http) ->
-   stream(Http#http{recbuf = undefined}, join(RecBuf, Stream), [], htstream_decode);
+   stream(
+      stream_stats(Stream, Http#http{recbuf = undefined}), 
+      join(RecBuf, Stream), 
+      [], 
+      htstream_decode
+   );
 
 decode(Stream, #http{recbuf = RecBuf} = Http) ->
    decode(erlang:iolist_to_binary([RecBuf, Stream]), Http#http{recbuf = undefined}).
 
 
-   % Size = erlang:iolist_size(Msg),
-   % decode(Msg, [], stats(Size, Http));
-
-% decode(Msg, #http{recbuf = RecBuf} = Http) ->
-   % Size = erlang:iolist_size(Msg),
-   % Pack = erlang:iolist_to_binary([RecBuf, Msg]),
-%    decode(Pack, [], stats(Size, Http#http{recbuf = undefined})).
-
-% stats(Size, #http{packets = Pack, octets = Byte} = Http) ->
-%    Http#http{
-%       packets = Pack + 1
-%      ,octets  = Byte + Size
-%    }.
+stream_stats(undefined, Http) ->
+   Http;
+stream_stats(Stream, #http{packets = Pack, octets = Byte} = Http) ->
+   Http#http{
+      packets = Pack + 1
+     ,octets  = Byte + erlang:iolist_size(Stream)
+   }.
 
 %%
 %% encode http stream
@@ -189,11 +182,6 @@ encode(Stream, #http{is = eof, version = Vsn, recbuf = IoBuf}) ->
 encode(Stream, #http{recbuf = RecBuf} = Http) ->
    stream(Http#http{recbuf = undefined}, join(RecBuf, Stream), [], htstream_encode).
 
-%    stream(Http, Stream, queue:new(), htstream_encode);
-
-% encode(Stream, #http{recbuf = RecBuf} = Http) ->
-%    encode(erlang:iolist_to_binary([RecBuf, Stream]), Http#http{recbuf = undefined}).
-
 
 join(undefined, Y) ->
    Y;
@@ -204,12 +192,6 @@ join(X, undefined) ->
 join(X, Y) ->
    [X, Y].
 
-
-%    encode(Msg, [], Http);
-
-% encode(Msg, #http{recbuf = IoBuf} = Http) ->
-%    Pack = erlang:iolist_to_binary([IoBuf, Msg]),
-%    encode(Pack, [], Http#http{recbuf = undefined}).
 
 %%%------------------------------------------------------------------
 %%%
@@ -841,92 +823,6 @@ check_payload(State) ->
 
 
 
-% %% encode http status code response
-% encode_status(100) -> {100, <<"Continue">>};
-% encode_status(101) -> {101, <<"Switching Protocols">>};
-% encode_status(200) -> {200, <<"OK">>};
-% encode_status(201) -> {201, <<"Created">>};
-% encode_status(202) -> {202, <<"Accepted">>};
-% encode_status(203) -> {203, <<"Non-Authoritative Information">>};
-% encode_status(204) -> {204, <<"No Content">>};
-% encode_status(205) -> {205, <<"Reset Content">>};
-% encode_status(206) -> {206, <<"Partial Content">>};
-% encode_status(300) -> {300, <<"Multiple Choices">>};
-% encode_status(301) -> {301, <<"Moved Permanently">>};
-% encode_status(302) -> {302, <<"Found">>};
-% encode_status(303) -> {303, <<"See Other">>};
-% encode_status(304) -> {304, <<"Not Modified">>};
-% encode_status(307) -> {307, <<"Temporary Redirect">>};
-% encode_status(400) -> {400, <<"Bad Request">>};
-% encode_status(401) -> {401, <<"Unauthorized">>};
-% encode_status(402) -> {402, <<"Payment Required">>};
-% encode_status(403) -> {403, <<"Forbidden">>};
-% encode_status(404) -> {404, <<"Not Found">>};
-% encode_status(405) -> {405, <<"Method Not Allowed">>};
-% encode_status(406) -> {406, <<"Not Acceptable">>};
-% encode_status(407) -> {407, <<"Proxy Authentication Required">>};
-% encode_status(408) -> {408, <<"Request Timeout">>};
-% encode_status(409) -> {409, <<"Conflict">>};
-% encode_status(410) -> {410, <<"Gone">>};
-% encode_status(411) -> {411, <<"Length Required">>};
-% encode_status(412) -> {412, <<"Precondition Failed">>};
-% encode_status(413) -> {413, <<"Request Entity Too Large">>};
-% encode_status(414) -> {414, <<"Request-URI Too Long">>};
-% encode_status(415) -> {415, <<"Unsupported Media Type">>};
-% encode_status(416) -> {416, <<"Requested Range Not Satisfiable">>};
-% encode_status(417) -> {417, <<"Expectation Failed">>};
-% encode_status(422) -> {422, <<"Unprocessable Entity">>};
-% encode_status(500) -> {500, <<"Internal Server Error">>};
-% encode_status(501) -> {501, <<"Not Implemented">>};
-% encode_status(502) -> {502, <<"Bad Gateway">>};
-% encode_status(503) -> {503, <<"Service Unavailable">>};
-% encode_status(504) -> {504, <<"Gateway Timeout">>};
-% encode_status(505) -> {505, <<"HTTP Version Not Supported">>};
-
-% %encode_status(100) -> <<"100 Continue">>;
-% %encode_status(101) -> <<"101 Switching Protocols">>;
-% encode_status(ok)       -> encode_status(200);
-% encode_status(created)  -> encode_status(201);
-% encode_status(accepted) -> encode_status(202);
-% %status(203) -> <<"203 Non-Authoritative Information">>;
-% encode_status(no_content) -> encode_status(204);
-% %status(205) -> <<"205 Reset Content">>;
-% %status(206) -> <<"206 Partial Content">>;
-% %status(300) -> <<"300 Multiple Choices">>;
-% %status(301) -> <<"301 Moved Permanently">>;
-% %status(found) -> <<"302 Found">>;
-% %status(303) -> <<"303 See Other">>;
-% %status(304) -> <<"304 Not Modified">>;
-% %status(307) -> <<"307 Temporary Redirect">>;
-% encode_status(badarg) -> encode_status(400);
-% encode_status(unauthorized) -> encode_status(401);
-% %status(402) -> <<"402 Payment Required">>;
-% encode_status(forbidden) -> encode_status(403);
-% encode_status(not_found) -> encode_status(404);
-% encode_status(enoent)    -> encode_status(404);
-% encode_status(not_allowed)    -> encode_status(405);
-% encode_status(not_acceptable) -> encode_status(406);
-% %status(407) -> <<"407 Proxy Authentication Required">>;
-% %status(408) -> <<"408 Request Timeout">>;
-% encode_status(conflict) -> encode_status(409);
-% encode_status(duplicate)-> encode_status(409);
-% %status(410) -> <<"410 Gone">>;
-% %status(411) -> <<"411 Length Required">>;
-% %status(412) -> <<"412 Precondition Failed">>;
-% %status(413) -> <<"413 Request Entity Too Large">>;
-% %status(414) -> <<"414 Request-URI Too Long">>;
-% encode_status(bad_mime_type) -> encode_status(415);
-% %status(416) -> <<"416 Requested Range Not Satisfiable">>;
-% %status(417) -> <<"417 Expectation Failed">>;
-% %status(422) -> <<"422 Unprocessable Entity">>;
-% encode_status(not_implemented) -> encode_status(501);
-% %status(502) -> <<"502 Bad Gateway">>;
-% encode_status(not_available) -> encode_status(503);
-% %status(504) -> <<"504 Gateway Timeout">>;
-% %status(505) -> <<"505 HTTP Version Not Supported">>.
-% encode_status(_) -> encode_status(500).
-
-
 %%%------------------------------------------------------------------
 %%%
 %%% utility
@@ -943,24 +839,24 @@ alt(_, [H|T], X) ->
 alt(Y, [], _) ->
    Y.
 
-is_payload_chunked(S) ->
-   case lists:keyfind(?HTTP_TRANSFER_ENCODING, 1, S#http.headers) of
-      {?HTTP_TRANSFER_ENCODING, <<"identity">>} ->
+is_payload_chunked(#http{headers = Head} = State) ->
+   case lists:keyfind(<<"Transfer-Encoding">>, 1, Head) of
+      {_, <<"identity">>} ->
          false;
-      {?HTTP_TRANSFER_ENCODING, <<"chunked">>}  ->
-         {ok, S#http{is=eoh, length=chunked}};
+      {_, <<"chunked">>}  ->
+         {ok, State#http{is=eoh, length=chunked}};
       _ ->
          false
    end.
 
-is_payload_entity(S) ->
-   case lists:keyfind(?HTTP_TRANSFER_LENGTH, 1, S#http.headers) of
-      {?HTTP_TRANSFER_LENGTH, Len} ->
-         {ok, S#http{is = eoh, length = htstream_codec:i(Len)}};
+is_payload_entity(#http{headers = Head} = State) ->
+   case lists:keyfind(<<"Transfer-Length">>, 1, Head) of
+      {_, Len} ->
+         {ok, State#http{is = eoh, length = htstream_codec:i(Len)}};
       _ ->
-         case lists:keyfind(?HTTP_CONTENT_LENGTH, 1, S#http.headers) of
-            {?HTTP_CONTENT_LENGTH, Len} ->
-               {ok, S#http{is = eoh, length = htstream_codec:i(Len)}};
+         case lists:keyfind(<<"Content-Length">>, 1, Head) of
+            {_, Len} ->
+               {ok, State#http{is = eoh, length = htstream_codec:i(Len)}};
             _ ->
                false
          end
@@ -968,103 +864,11 @@ is_payload_entity(S) ->
 
 is_payload_eof(#http{headers = Head} = State) ->
    %% Note: this routine makes a final statement if the request carries payload or not
-   case lens:get(http_connection(), Head) of
+   case lists:keyfind(<<"Connection">>, 1, Head) of
       <<"close">> ->
          {ok, State#http{is = eoh, length = inf}};
       _ ->
          % look like http request / response go not carry on any payload
          {ok, State#http{is = eoh, length = none}}
    end.
-
-%%%------------------------------------------------------------------
-%%%
-%%% http lenses
-%%%
-%%%------------------------------------------------------------------
-
--define(lens(X), lens:pair(X, undefined)).
-
-http_accept() -> ?lens(<<"Accept">>).
-% -define(HTTP_  ,<<"Accept-Charset">>).
-% -define(HTTP_  ,<<"Accept-Datetime">>).
-% -define(HTTP_  ,<<"Accept-Encoding">>).
-% -define(HTTP_  ,<<"Accept-Language">>).
-% -define(HTTP_  ,<<"Access-Control-Request-Method">>).
-% -define(HTTP_  ,<<"Authorization">>).
-% -define(HTTP_  ,<<"Cache-Control">>).
-http_connection() -> ?lens(<<"Connection">>).
-% -define(HTTP_CONNECTION  ,<<"Connection">>).
-% -define(HTTP_  ,<<"Content-Length">>).
-% -define(HTTP_  ,<<"Content-MD5">>).
-http_content_type() -> ?lens(<<"Content-Type">>).
-% -define(HTTP_  ,<<"Cookie">>).
-% -define(HTTP_  ,<<"Date">>).
-% -define(HTTP_  ,<<"Expect">>).
-% -define(HTTP_  ,<<"Forwarded">>).
-% -define(HTTP_  ,<<"From">>).
-% -define(HTTP_HOST  ,<<"Host">>).
-% -define(HTTP_  ,<<"If-Match">>).
-% -define(HTTP_  ,<<"If-Modified-Since">>).
-% -define(HTTP_  ,<<"If-None-Match">>).
-% -define(HTTP_  ,<<"If-Range">>).
-% -define(HTTP_  ,<<"If-Unmodified-Since">>).
-% -define(HTTP_  ,<<"Max-Forwards">>).
-% -define(HTTP_  ,<<"Origin">>).
-% -define(HTTP_  ,<<"Pragma">>).
-% -define(HTTP_  ,<<"Proxy-Authorization">>).
-% -define(HTTP_  ,<<"Range">>).
-% -define(HTTP_  ,<<"Referer">>).
-% -define(HTTP_  ,<<"TE">>).
-% -define(HTTP_  ,<<"Upgrade">>).
-% -define(HTTP_  ,<<"User-Agent">>).
-% -define(HTTP_  ,<<"Via">>).
-% -define(HTTP_  ,<<"Warning">>).
-
-% -define(HTTP_  ,<<"Accept-Patch">>).
-% -define(HTTP_  ,<<"Accept-Ranges">>).
-% -define(HTTP_  ,<<"Access-Control-Allow-Origin">>).
-% -define(HTTP_  ,<<"Access-Control-Allow-Credentials">>). 
-% -define(HTTP_  ,<<"Access-Control-Expose-Headers">>).
-% -define(HTTP_  ,<<"Access-Control-Max-Age">>).
-% -define(HTTP_  ,<<"Access-Control-Allow-Methods">>). 
-% -define(HTTP_  ,<<"Access-Control-Allow-Headers">>).
-% -define(HTTP_  ,<<"Age">>).
-% -define(HTTP_  ,<<"Allow">>).
-% -define(HTTP_  ,<<"Alt-Svc">>).
-% -define(HTTP_  ,<<"Cache-Control">>).
-% -define(HTTP_  ,<<"Connection">>).
-% -define(HTTP_  ,<<"Content-Disposition">>).
-% -define(HTTP_  ,<<"Content-Encoding">>).
-% -define(HTTP_  ,<<"Content-Language">>).
-% -define(HTTP_CONTENT_LENGTH, <<"Content-Length">>).
-% -define(HTTP_  ,<<"Content-Location">>).
-% -define(HTTP_  ,<<"Content-MD5">>).
-% -define(HTTP_  ,<<"Content-Range">>).
-% -define(HTTP_  ,<<"Content-Type">>).
-% -define(HTTP_  ,<<"Date">>).
-% -define(HTTP_  ,<<"ETag">>).
-% -define(HTTP_  ,<<"Expires">>).
-% -define(HTTP_  ,<<"Last-Modified">>).
-% -define(HTTP_  ,<<"Link">>).
-% -define(HTTP_  ,<<"Location">>).
-% -define(HTTP_  ,<<"P3P">>).
-% -define(HTTP_  ,<<"Pragma">>).
-% -define(HTTP_  ,<<"Proxy-Authenticate">>).
-% -define(HTTP_  ,<<"Public-Key-Pins">>).
-% -define(HTTP_  ,<<"Retry-After">>).
-% -define(HTTP_  ,<<"Server">>).
-% -define(HTTP_  ,<<"Set-Cookie">>).
-% -define(HTTP_  ,<<"Strict-Transport-Security">>).
-% -define(HTTP_  ,<<"Tk">>).
-% -define(HTTP_  ,<<"Trailer">>).
-% -define(HTTP_TRANSFER_ENCODING, <<"Transfer-Encoding">>).
-% -define(HTTP_TRANSFER_LENGTH, <<"Transfer-Length">>).
-% -define(HTTP_  ,<<"Upgrade">>).
-% -define(HTTP_  ,<<"Vary">>).
-% -define(HTTP_  ,<<"Via">>).
-% -define(HTTP_  ,<<"Warning">>).
-% -define(HTTP_  ,<<"WWW-Authenticate">>).
-% -define(HTTP_  ,<<"X-Frame-Options">>).
-
-
 

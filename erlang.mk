@@ -8,8 +8,12 @@
 ## @doc
 ##   This makefile is the wrapper of rebar to build and ship erlang software
 ##
-## @version 1.0.1
+## @version 1.0.4
 .PHONY: all compile test unit clean distclean run console mock-up mock-rm benchmark release dist
+
+APP := $(strip $(APP))
+ORG := $(strip $(ORG))
+URI := $(strip $(URI))
 
 ##
 ## config
@@ -40,6 +44,7 @@ EFLAGS = \
 	-name ${APP}@${ADDR} \
 	-setcookie ${COOKIE} \
 	-pa ${ROOT}/_build/default/lib/*/ebin \
+	-pa ${ROOT}/_build/default/lib/*/priv \
 	-pa ${ROOT}/rel \
 	-kernel inet_dist_listen_min 32100 \
 	-kernel inet_dist_listen_max 32199 \
@@ -116,7 +121,9 @@ clean: testclean dockerclean
 	@rm -f  *.tar.gz
 	@rm -f  *.bundle
 
-distclean: clean mock-rm node-rm
+distclean: clean
+	-@make mock-rm
+	-@make dist-rm
 	-@rm -Rf _build
 	-@rm rebar3
 
