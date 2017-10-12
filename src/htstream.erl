@@ -340,13 +340,18 @@ continue({Pckt, Stream, Http}, Queue, Codec) ->
 %%
 %% 5. By the server closing the connection. 
 %%
-% decode_check_payload(#http{htline={?HTTP_GET,  _}}=State) ->
-%    case lists:keyfind('Connection', 1, State#http.headers) of
-%       {_, <<"Upgrade">>} ->
-%          State#http{is=upgrade};
-%       _ ->
-%          State#http{is=eof}
-%    end;
+check_payload(#http{htline={'GET',  _}, headers = Head}=State) ->
+   case lists:keyfind(<<"Connection">>, 1, Head) of
+      {_, <<"Upgrade">>} ->
+         State#http{is=upgrade};
+      _ ->
+         % State#http{is=eof}
+         element(2, alt(State, [
+            fun is_payload_chunked/1,
+            fun is_payload_entity/1,
+            fun is_payload_eof/1
+         ]))
+   end;
 % decode_check_payload(#http{htline={?HTTP_HEAD, _}}=State) ->
 %    State#http{is=eof};
 % decode_check_payload(#http{htline={?HTTP_DELETE, _}}=State) ->
