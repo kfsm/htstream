@@ -3,6 +3,6 @@
    report, 
    verbose, 
    {i, "include"}, 
-   {outdir, "ebin"},
+   {outdir, "_build/default/lib/htstream/ebin"},
    debug_info 
 ]}.
