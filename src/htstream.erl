@@ -154,11 +154,7 @@ decode(Stream, #http{recbuf = RecBuf} = Http) ->
       join(RecBuf, Stream), 
       [], 
       htstream_decode
-   );
-
-decode(Stream, #http{recbuf = RecBuf} = Http) ->
-   decode(erlang:iolist_to_binary([RecBuf, Stream]), Http#http{recbuf = undefined}).
-
+   ).
 
 stream_stats(undefined, Http) ->
    Http;
@@ -225,7 +221,7 @@ stream(#http{is = eoh, length = undefined} = Http, Stream, Queue, Codec) ->
 
 %%
 %% type and length of entity payload (end-of-header / entity first byte)
-stream(#http{is = eoh, length = none} = Http, Stream, Queue, Codec) ->
+stream(#http{is = eoh, length = none} = Http, _Stream, Queue, Codec) ->
    continue(
       {undefined, undefined, Http#http{is = eof}},
       Queue,
@@ -272,9 +268,6 @@ stream(#http{is = entity, length = Len} = Http, Stream, Queue, Codec)
       Queue,
       Codec
    );
-
-stream(#http{is = chunk_head, length = 0} = Http, Stream, Queue, Codec) ->
-   continue(Codec:chunk(Stream, Http), Queue, Codec);
 
 stream(#http{is = chunk_head, length = 0} = Http, Stream, Queue, Codec) ->
    continue(Codec:chunk(Stream, Http), Queue, Codec);
