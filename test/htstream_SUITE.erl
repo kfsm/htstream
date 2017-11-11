@@ -1,7 +1,6 @@
 -module(htstream_SUITE).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("../src/htstream.hrl").
--include_lib("htstream/include/htstream.hrl").
 
 -export([all/0]).
 -export([
@@ -147,7 +146,7 @@ decode_chunked(_) ->
    payload = htstream:state(Http4),
    #http{is = chunk_head, length = 0} = Http4,
 
-   {[eof], Http5} = htstream:decode(<<"0\r\n\r\n">>, Http4),
+   {[], Http5} = htstream:decode(<<"0\r\n\r\n">>, Http4),
    eof = htstream:state(Http5).
 
 
