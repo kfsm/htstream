@@ -149,25 +149,3 @@ decode_chunked(_) ->
    {[], Http5} = htstream:decode(<<"0\r\n\r\n">>, Http4),
    eof = htstream:state(Http5).
 
-
-%%
-%%
-encode(Req) ->
-   lists:mapfoldl(
-      fun(Packet, {_, Http}) -> 
-         htstream:encode(Packet, Http)
-      end,
-      htstream:new(),
-      Req
-   ).
-
-%%
-%%
-decode(Req) ->
-   lists:mapfoldl(
-      fun(Packet, {_, Http}) -> 
-         htstream:decode(Packet, Http)
-      end,
-      htstream:new(),
-      Req
-   ).
