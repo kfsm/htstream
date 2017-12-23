@@ -854,7 +854,12 @@ is_payload_entity(#http{headers = Head} = State) ->
       _ ->
          case lists:keyfind(<<"Content-Length">>, 1, Head) of
             {_, Len} ->
-               {ok, State#http{is = eoh, length = htstream_codec:i(Len)}};
+               case htstream_codec:i(Len) of
+                  Val when Val > 0 ->
+                     {ok, State#http{is = eoh, length = Val}};
+                  _ ->
+                     false
+               end;
             _ ->
                false
          end
