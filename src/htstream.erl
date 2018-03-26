@@ -244,13 +244,6 @@ stream(#http{is = eoh} = Http, Stream, Queue, Codec) ->
 
 %%
 %% entity payload
-stream(#http{is = entity, length = inf} = Http, eof, Queue, Codec) ->
-   continue(
-      {undefined, undefined, Http#http{is = eof}},
-      Queue,
-      Codec
-   );
-
 stream(#http{is = entity, length = inf} = Http, Stream, Queue, Codec) ->
    % message length is determined by duration of the connection
    continue(
