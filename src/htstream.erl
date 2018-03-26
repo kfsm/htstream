@@ -244,6 +244,13 @@ stream(#http{is = eoh} = Http, Stream, Queue, Codec) ->
 
 %%
 %% entity payload
+stream(#http{is = entity, length = inf} = Http, eof, Queue, Codec) ->
+   continue(
+      {undefined, undefined, Http#http{is = eof}},
+      Queue,
+      Codec
+   );
+
 stream(#http{is = entity, length = inf} = Http, Stream, Queue, Codec) ->
    % message length is determined by duration of the connection
    continue(
@@ -868,7 +875,7 @@ is_payload_entity(#http{headers = Head} = State) ->
 is_payload_eof(#http{headers = Head} = State) ->
    %% Note: this routine makes a final statement if the request carries payload or not
    case lists:keyfind(<<"Connection">>, 1, Head) of
-      <<"close">> ->
+      {_, <<"close">>} ->
          {ok, State#http{is = eoh, length = inf}};
       _ ->
          % look like http request / response go not carry on any payload
