@@ -175,16 +175,18 @@ encode(Stream) ->
 encode(Stream, #http{is = eof, version = Vsn, recbuf = IoBuf}) ->
    encode(Stream, #http{is = idle, version = Vsn, recbuf = IoBuf});
 
-encode(Stream, #http{recbuf = RecBuf} = Http) ->
-   stream(Http#http{recbuf = undefined}, join(RecBuf, Stream), [], htstream_encode).
+encode(Stream, #http{} = Http) ->
+   stream(Http#http{}, Stream, [], htstream_encode).
 
 
+join(undefined, undefined) ->
+   <<>>;
 join(undefined, Y) ->
    Y;
-join(<<>>,      Y) ->
-   Y; 
 join(X, undefined) ->
    X;
+join(<<>>,      Y) ->
+   Y; 
 join(X, Y) ->
    erlang:iolist_to_binary([X, Y]).
 
@@ -221,7 +223,21 @@ stream(#http{is = eoh, length = undefined} = Http, Stream, Queue, Codec) ->
 
 %%
 %% type and length of entity payload (end-of-header / entity first byte)
-stream(#http{is = eoh, length = none} = Http, _Stream, Queue, Codec) ->
+stream(#http{is = eoh, length = none} = Http, undefined, Queue, Codec) ->
+   continue(
+      {undefined, undefined, Http},
+      Queue,
+      Codec
+   );
+
+stream(#http{is = eoh, length = none} = Http, eof, Queue, Codec) ->
+   continue(
+      {undefined, undefined, Http#http{is = eof}},
+      Queue,
+      Codec
+   );
+
+stream(#http{is = eoh, length = none} = Http, Stream, Queue, Codec) ->
    continue(
       {undefined, undefined, Http#http{is = eof}},
       Queue,
