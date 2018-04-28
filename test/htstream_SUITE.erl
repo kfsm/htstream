@@ -8,7 +8,9 @@
    decode_request/1,
    decode_request_progressive/1,
    encode_chunked/1,
-   decode_chunked/1
+   decode_chunked/1,
+   encode_upstream_request/1,
+   decode_downstream_request/1
 ]).
 
 %%
@@ -19,7 +21,9 @@ all() ->
       decode_request,
       decode_request_progressive,
       encode_chunked,
-      decode_chunked
+      decode_chunked,
+      encode_upstream_request,
+      decode_downstream_request
    ].
 
 
@@ -54,7 +58,10 @@ encode_request(_) ->
    {request, ?REQUEST_TERM} = htstream:http(Http2),
 
    {[], Http3} = htstream:encode(undefined, Http2),
-   eof = htstream:state(Http3).
+   eoh = htstream:state(Http3),
+
+   {[], Http4} = htstream:encode(eof, Http3),
+   eof = htstream:state(Http4).
 
 
 %%
@@ -68,7 +75,7 @@ decode_request(_) ->
    #http{length = none} = Http2,
    {request, ?REQUEST_TERM} = htstream:http(Http2),
 
-   {[], Http3} = htstream:encode(undefined, Http2),
+   {[], Http3} = htstream:decode(undefined, Http2),
    eof = htstream:state(Http3).
 
 %%
@@ -82,7 +89,7 @@ decode_request_progressive(_) ->
    #http{length = none} = Http3,
    {request, ?REQUEST_TERM} = htstream:http(Http3),
 
-   {[], Http4} = htstream:encode(undefined, Http3),
+   {[], Http4} = htstream:decode(undefined, Http3),
    eof = htstream:state(Http4).
 
 
@@ -148,4 +155,29 @@ decode_chunked(_) ->
 
    {[], Http5} = htstream:decode(<<"0\r\n\r\n">>, Http4),
    eof = htstream:state(Http5).
+
+
+%%
+%%
+encode_upstream_request(_) ->
+   Req = {'GET', <<"/">>, [{<<"Connection">>,<<"keep-alive">>}]},
+   {_, A} = htstream:encode(Req, htstream:new()),
+   eoh = htstream:state(A),
+
+   {_, B} = htstream:encode(undefined, A),
+   eoh = htstream:state(B),
+
+   {_, C} = htstream:encode(eof, B),
+   eof = htstream:state(C).
+
+%%
+%%
+decode_downstream_request(_) ->
+   Req = <<"GET / HTTP/1.1\r\nConnection: keep-alive\r\n\r\n">>,
+   {_, A} = htstream:decode(Req, htstream:new()),
+   eoh = htstream:state(A),
+
+   {_, B} = htstream:decode(undefined, A),
+   eof = htstream:state(B).
+
 
