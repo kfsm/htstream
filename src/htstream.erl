@@ -225,19 +225,12 @@ stream(#http{is = eoh, length = undefined} = Http, Stream, Queue, Codec) ->
 %% type and length of entity payload (end-of-header / entity first byte)
 stream(#http{is = eoh, length = none} = Http, undefined, Queue, Codec) ->
    continue(
-      {undefined, undefined, Http},
+      {undefined, undefined, Http#http{is = entity, length = none}},
       Queue,
       Codec
    );
 
-stream(#http{is = eoh, length = none} = Http, eof, Queue, Codec) ->
-   continue(
-      {undefined, undefined, Http#http{is = eof}},
-      Queue,
-      Codec
-   );
-
-stream(#http{is = eoh, length = none} = Http, Stream, Queue, Codec) ->
+stream(#http{is = eoh, length = none} = Http, _Stream, Queue, Codec) ->
    continue(
       {undefined, undefined, Http#http{is = eof}},
       Queue,
@@ -260,6 +253,13 @@ stream(#http{is = eoh} = Http, Stream, Queue, Codec) ->
 
 %%
 %% entity payload
+stream(#http{is = entity, length = none} = Http, eof, Queue, Codec) ->
+   continue(
+      {undefined, undefined, Http#http{is = eof}},
+      Queue,
+      Codec
+   );
+
 stream(#http{is = entity, length = inf} = Http, eof, Queue, Codec) ->
    continue(
       {undefined, undefined, Http#http{is = eof}},
