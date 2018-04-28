@@ -58,7 +58,7 @@ encode_request(_) ->
    {request, ?REQUEST_TERM} = htstream:http(Http2),
 
    {[], Http3} = htstream:encode(undefined, Http2),
-   eoh = htstream:state(Http3),
+   payload = htstream:state(Http3),
 
    {[], Http4} = htstream:encode(eof, Http3),
    eof = htstream:state(Http4).
@@ -165,7 +165,7 @@ encode_upstream_request(_) ->
    eoh = htstream:state(A),
 
    {_, B} = htstream:encode(undefined, A),
-   eoh = htstream:state(B),
+   payload = htstream:state(B),
 
    {_, C} = htstream:encode(eof, B),
    eof = htstream:state(C).
